@@ -13,14 +13,14 @@ public final class AmadeWritepadApplication {
     private AmadeWritepadApplication() {
     }
 
-    /** {@code --sample} opens the window with a few pages of sample text. */
+    /** Opens the file named as first argument; {@code --sample} shows a few pages of sample text instead. */
     public static void main(String[] args) {
         AmadeApplication.launch(APP, injector -> {
             MainWindow window = injector.getInstance(MainWindow.class);
             MainPresenter presenter = injector.getInstance(MainPresenter.class);
             window.bind(presenter);
-            if (List.of(args).contains("--sample")) presenter.insertSampleText();
             window.setVisible(true);
+            presenter.start(List.of(args));
         }, new WritepadModule());
     }
 }

@@ -49,6 +49,7 @@ public final class MainMenuBar extends JMenuBar {
         file.add(item(actions.newDocument));
         file.add(item(actions.open));
         file.add(item(actions.save));
+        file.add(item(actions.saveAs));
         file.addSeparator();
         item(file, "menu.file.page-setup", 0, 0, presenter::pageSetup);
         file.add(item(actions.printPreview));

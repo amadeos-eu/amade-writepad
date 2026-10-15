@@ -46,6 +46,7 @@ public final class EditorActions {
     public final Action newDocument;
     public final Action open;
     public final Action save;
+    public final Action saveAs;
     public final Action print;
     public final Action printPreview;
     public final Action undoAction;
@@ -73,8 +74,10 @@ public final class EditorActions {
         this.msg = msg;
 
         newDocument = action("menu.file.new", "tip.new", Glyph.NEW, KeyEvent.VK_N, e -> presenter.newDocument());
-        open = disabled("menu.file.open", "tip.open", Glyph.OPEN, KeyEvent.VK_O);
-        save = disabled("menu.file.save", "tip.save", Glyph.SAVE, KeyEvent.VK_S);
+        open = action("menu.file.open", "tip.open", Glyph.OPEN, KeyEvent.VK_O, e -> presenter.chooseOpen());
+        save = action("menu.file.save", "tip.save", Glyph.SAVE, KeyEvent.VK_S, e -> presenter.save());
+        saveAs = action("menu.file.save-as", "tip.save-as", Glyph.SAVE, 0, e -> presenter.saveAs());
+        saveAs.putValue(Action.ACCELERATOR_KEY, KeyStroke.getKeyStroke(KeyEvent.VK_S, CTRL | InputEvent.SHIFT_DOWN_MASK));
         print = action("menu.file.print", "tip.print", Glyph.PRINT, KeyEvent.VK_P, e -> presenter.print());
         printPreview = disabled("menu.file.print-preview", "tip.print-preview", Glyph.PREVIEW, 0);
         undoAction = action("menu.edit.undo", "tip.undo", Glyph.UNDO, KeyEvent.VK_Z, e -> undo());

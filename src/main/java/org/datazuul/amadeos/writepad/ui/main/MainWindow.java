@@ -6,6 +6,9 @@ import org.datazuul.amadeos.commons.i18n.Messages;
 import org.datazuul.amadeos.commons.swing.EdtExecutor;
 import org.datazuul.amadeos.writepad.domain.DocumentSettings;
 import org.datazuul.amadeos.writepad.repository.WritepadPreferences.Bar;
+import org.datazuul.amadeos.writepad.service.format.DocumentFormat;
+import org.datazuul.amadeos.writepad.service.format.Documents;
+import org.datazuul.amadeos.writepad.service.format.FormatRegistry;
 import org.datazuul.amadeos.writepad.service.layout.PageLayout;
 import org.datazuul.amadeos.writepad.service.layout.PagedSectionView;
 import org.datazuul.amadeos.writepad.service.print.PrintService;
@@ -16,6 +19,7 @@ import org.datazuul.amadeos.writepad.ui.editor.SampleText;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.JComboBox;
+import javax.swing.JFileChooser;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
@@ -27,10 +31,8 @@ import javax.swing.SwingUtilities;
 import javax.swing.border.BevelBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
-import javax.swing.text.DefaultStyledDocument;
-import javax.swing.text.Style;
-import javax.swing.text.StyleConstants;
-import javax.swing.text.StyleContext;
+import javax.swing.filechooser.FileFilter;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.text.StyledDocument;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
@@ -39,6 +41,12 @@ import java.awt.Font;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.awt.print.PrinterException;
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -62,6 +70,7 @@ public final class MainWindow extends JFrame implements MainView {
     private EditorActions actions;
     private MainPresenter presenter;
     private boolean updatingZoom;
+    private File lastDirectory;
 
     @Inject
     public MainWindow(PageLayout layout, Messages msg, LocaleSettings locales, PrintService printService) {
@@ -94,7 +103,7 @@ public final class MainWindow extends JFrame implements MainView {
         EdtExecutor.requireEdt();
         this.presenter = presenter;
         actions = new EditorActions(editor, presenter, msg);
-        installDocument(new DefaultStyledDocument());
+        installDocument(Documents.newDocument());
         menuBar = new MainMenuBar(presenter, actions, msg, locales);
         setJMenuBar(menuBar);
         toolBar = new MainToolBar(actions);
@@ -144,9 +153,124 @@ public final class MainWindow extends JFrame implements MainView {
     }
 
     @Override
-    public void clearDocument() {
+    public void showDocument(StyledDocument document) {
         EdtExecutor.requireEdt();
-        installDocument(new DefaultStyledDocument());
+        installDocument(document);
+        editor.setCaretPosition(0);
+        editor.requestFocusInWindow();
+    }
+
+    @Override
+    public StyledDocument document() {
+        return editor.getStyledDocument();
+    }
+
+    @Override
+    public void showTitle(String title) {
+        EdtExecutor.requireEdt();
+        setTitle(title);
+    }
+
+    @Override
+    public Optional<Path> chooseOpenPath(List<DocumentFormat> formats) {
+        EdtExecutor.requireEdt();
+        JFileChooser chooser = chooser();
+        List<String> all = formats.stream().flatMap(f -> f.extensions().stream()).toList();
+        FileNameExtensionFilter supported = new FileNameExtensionFilter(msg.get("filter.all-documents"),
+                all.toArray(String[]::new));
+        chooser.addChoosableFileFilter(supported);
+        for (DocumentFormat format : formats) chooser.addChoosableFileFilter(filter(format));
+        chooser.setFileFilter(supported);
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return Optional.empty();
+        lastDirectory = chooser.getCurrentDirectory();
+        return Optional.of(chooser.getSelectedFile().toPath());
+    }
+
+    @Override
+    public Optional<SaveTarget> chooseSavePath(Path suggested, List<DocumentFormat> formats,
+                                               DocumentFormat selected) {
+        EdtExecutor.requireEdt();
+        JFileChooser chooser = chooser();
+        chooser.setAcceptAllFileFilterUsed(false);
+        Map<FileFilter, DocumentFormat> byFilter = new LinkedHashMap<>();
+        for (DocumentFormat format : formats) {
+            FileNameExtensionFilter filter = filter(format);
+            byFilter.put(filter, format);
+            chooser.addChoosableFileFilter(filter);
+            if (format == selected) chooser.setFileFilter(filter);
+        }
+        chooser.setSelectedFile(suggested.toFile());
+        // Switching the type changes the extension of the name, as in WordPad.
+        chooser.addPropertyChangeListener(JFileChooser.FILE_FILTER_CHANGED_PROPERTY, e -> {
+            DocumentFormat format = byFilter.get(chooser.getFileFilter());
+            String name = fileName(chooser);
+            if (format != null && name != null && !name.isBlank()) {
+                chooser.setSelectedFile(new File(chooser.getCurrentDirectory(), withExtension(name, format)));
+            }
+        });
+        while (chooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+            DocumentFormat format = byFilter.getOrDefault(chooser.getFileFilter(), selected);
+            File chosen = chooser.getSelectedFile();
+            Path path = chosen.toPath();
+            if (FormatRegistry.extension(path).isEmpty()) {
+                path = path.resolveSibling(path.getFileName() + "." + format.defaultExtension());
+            }
+            lastDirectory = chooser.getCurrentDirectory();
+            if (!Files.exists(path) || confirm(msg.format("dialog.overwrite.message", path.getFileName()),
+                    msg.get("dialog.overwrite.title"))) {
+                return Optional.of(new SaveTarget(path, format));
+            }
+        }
+        return Optional.empty();
+    }
+
+    @Override
+    public SaveChoice confirmSave(String documentName) {
+        EdtExecutor.requireEdt();
+        int choice = JOptionPane.showConfirmDialog(this, plain(msg.format("dialog.save-changes.message",
+                documentName)), msg.get("dialog.save-changes.title"), JOptionPane.YES_NO_CANCEL_OPTION,
+                JOptionPane.WARNING_MESSAGE);
+        return switch (choice) {
+            case JOptionPane.YES_OPTION -> SaveChoice.SAVE;
+            case JOptionPane.NO_OPTION -> SaveChoice.DISCARD;
+            default -> SaveChoice.CANCEL;
+        };
+    }
+
+    @Override
+    public boolean confirmLoseFormatting(String formatName) {
+        EdtExecutor.requireEdt();
+        return confirm(msg.format("dialog.lose-formatting.message", formatName),
+                msg.get("dialog.lose-formatting.title"));
+    }
+
+    private boolean confirm(String message, String title) {
+        return JOptionPane.showConfirmDialog(this, plain(message), title, JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE) == JOptionPane.YES_OPTION;
+    }
+
+    private JFileChooser chooser() {
+        JFileChooser chooser = new JFileChooser(lastDirectory);
+        chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
+        return chooser;
+    }
+
+    private FileNameExtensionFilter filter(DocumentFormat format) {
+        String patterns = String.join(", ", format.extensions().stream().map(e -> "*." + e).toList());
+        return new FileNameExtensionFilter(format.name() + " (" + patterns + ")",
+                format.extensions().toArray(String[]::new));
+    }
+
+    /** The name in the chooser's text field, which getSelectedFile does not always reflect yet. */
+    private static String fileName(JFileChooser chooser) {
+        File selected = chooser.getSelectedFile();
+        return selected == null ? null : selected.getName();
+    }
+
+    static String withExtension(String name, DocumentFormat format) {
+        int dot = name.lastIndexOf('.');
+        String base = dot > 0 ? name.substring(0, dot) : name;
+        return base + "." + format.defaultExtension();
     }
 
     @Override
@@ -209,25 +333,27 @@ public final class MainWindow extends JFrame implements MainView {
     }
 
     private void installDocument(StyledDocument document) {
-        Style base = document.getStyle(StyleContext.DEFAULT_STYLE);
-        StyleConstants.setFontFamily(base, PageEditor.DEFAULT_FONT.getFamily());
-        StyleConstants.setFontSize(base, PageEditor.DEFAULT_FONT.getSize());
         editor.setStyledDocument(document);
         actions.attach(document);
-        // Document listeners run before the views have seen the change: update afterwards.
         document.addDocumentListener(new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) {
-                SwingUtilities.invokeLater(MainWindow.this::caretMoved);
+                changed();
             }
 
             @Override
             public void removeUpdate(DocumentEvent e) {
-                SwingUtilities.invokeLater(MainWindow.this::caretMoved);
+                changed();
             }
 
             @Override
             public void changedUpdate(DocumentEvent e) {
+                changed();
+            }
+
+            private void changed() {
+                presenter.documentChanged();
+                // Document listeners run before the views have seen the change: update afterwards.
                 SwingUtilities.invokeLater(MainWindow.this::caretMoved);
             }
         });
