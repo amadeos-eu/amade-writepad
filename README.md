@@ -46,7 +46,12 @@ Java 21, Swing and Guice; theme, Motif look, language and start-up come from [am
 ./gradlew run --args=Brief.rtf     # open a file
 ./gradlew test                     # Swing tests need a display: xvfb-run ./gradlew test
 ./gradlew deb                      # build/distributions/amade-writepad_<version>_all.deb
+./gradlew installToAmadeOs         # the .deb into ../amadeos/config/packages.chroot/ for the ISO build
+./gradlew windowsInstaller         # on Windows: MSI with its own Java runtime (needs WiX Toolset 3)
+./gradlew windowsInstaller -PinstallerType=app-image   # portable folder with amade-writepad.exe
 ```
+
+CI builds the .deb on every push and pull request, and on Windows the MSI and a portable ZIP; both are attached to the workflow run.
 
 ## Licence
 
