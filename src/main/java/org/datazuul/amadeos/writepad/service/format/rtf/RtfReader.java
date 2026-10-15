@@ -7,6 +7,8 @@ import org.datazuul.amadeos.writepad.domain.PaperSize;
 import org.datazuul.amadeos.writepad.domain.Units;
 import org.datazuul.amadeos.writepad.service.format.DocumentContent;
 import org.datazuul.amadeos.writepad.service.format.Documents;
+import org.datazuul.amadeos.writepad.service.list.ListAttributes;
+import org.datazuul.amadeos.writepad.service.list.ListFormat;
 
 import javax.swing.text.BadLocationException;
 import javax.swing.text.SimpleAttributeSet;
@@ -28,8 +30,9 @@ import java.util.Set;
 
 /**
  * Reads RTF into a styled document: text, fonts, sizes, bold, italic, underline, strike-through,
- * super-/subscript, colours, alignment, indents, spacing, line spacing, tab stops and the page setup. Everything else
- * (pictures, headers, footnotes, fields' instructions, list definitions, style sheets, document info) is
+ * super-/subscript, colours, alignment, indents, spacing, line spacing, tab stops, lists ({@code \listtable}
+ * and WordPad's {@code \pn}) and the page setup. Everything else
+ * (pictures, headers, footnotes, fields' instructions, style sheets, document info) is
  * skipped, so unknown content never breaks the import or appears as garbage.
  *
  * <p>Handles the character sets RTF files use: the document code page ({@code \ansicpg}), per-font
@@ -40,9 +43,8 @@ final class RtfReader {
     /** Destinations whose content is not text of the document. */
     private static final Set<String> SKIPPED = Set.of(
             "stylesheet", "info", "pict", "header", "headerl", "headerr", "headerf", "footer", "footerl",
-            "footerr", "footerf", "footnote", "annotation", "object", "nonshppict", "shppict", "listtable",
-            "listoverridetable", "rsidtbl", "generator", "xmlnstbl", "themedata", "colorschememapping",
-            "latentstyles", "datastore", "pntext", "pntxta", "pntxtb", "pn", "fldinst", "bkmkstart", "bkmkend",
+            "footerr", "footerf", "footnote", "annotation", "object", "nonshppict", "shppict", "rsidtbl", "generator", "xmlnstbl", "themedata", "colorschememapping",
+            "latentstyles", "datastore", "pntext", "pntxta", "pntxtb", "fldinst", "bkmkstart", "bkmkend",
             "mmathPr", "upr", "filetbl", "revtbl", "protusertbl", "listtext", "userprops", "docvar", "template",
             "background", "shp", "sp", "do", "atnid", "atnauthor", "comment", "keywords", "operator", "title",
             "subject", "author", "company", "doccomm", "hlinkbase", "xe", "tc", "txe", "pgdsctbl", "ftnsep",
@@ -56,7 +58,7 @@ final class RtfReader {
             Map.entry(186, "windows-1257"), Map.entry(204, "windows-1251"), Map.entry(222, "x-windows-874"),
             Map.entry(238, "windows-1250"), Map.entry(255, "IBM437"));
 
-    private enum Destination { TEXT, FONT_TABLE, COLOR_TABLE, SKIP }
+    private enum Destination { TEXT, FONT_TABLE, COLOR_TABLE, LIST_TABLE, LIST_OVERRIDES, PN, SKIP }
 
     /** Formatting that RTF groups save and restore. */
     private static final class State implements Cloneable {
@@ -82,6 +84,12 @@ final class RtfReader {
         List<TabStop> tabs = List.of();
         int tabAlignment = TabStop.ALIGN_LEFT;
         int tabLeader = TabStop.LEAD_NONE;
+        /** {@code \ls}: the list (override) of the paragraph, 0 for none; {@code \ilvl}: its level. */
+        int listOverride;
+        int listLevel;
+        /** WordPad's {@code \pn} lists: the mark, null for none, and the level. */
+        ListFormat pnFormat;
+        int pnLevel;
 
         @Override
         public State clone() {
@@ -107,6 +115,8 @@ final class RtfReader {
             tabs = List.of();
             tabAlignment = TabStop.ALIGN_LEFT;
             tabLeader = TabStop.LEAD_NONE;
+            listOverride = listLevel = pnLevel = 0;
+            pnFormat = null;
         }
 
         /** {@code \tx} or {@code \tb}: a stop with the alignment and leader given just before it. */
@@ -120,6 +130,16 @@ final class RtfReader {
     }
 
     private record FontEntry(String name, Charset charset) {
+    }
+
+    /** A {@code \list} of the list table: the numbering style of each level. */
+    private static final class ListDefinition {
+        final List<ListFormat> levels = new ArrayList<>();
+
+        ListFormat level(int level) {
+            if (level < levels.size()) return levels.get(level);
+            return levels.isEmpty() ? ListFormat.numberingFor(level) : levels.get(levels.size() - 1);
+        }
     }
 
     private final byte[] in;
@@ -149,6 +169,20 @@ final class RtfReader {
     private boolean groupStart;
     private boolean ignorable;
     private boolean rootClosed;
+
+    // Lists: definitions by \listid, overrides \ls -> \listid, our list ids by \ls
+    private final Map<Integer, ListDefinition> lists = new HashMap<>();
+    private final Map<Integer, Integer> overrides = new HashMap<>();
+    private final Map<Integer, Integer> listIds = new HashMap<>();
+    private ListDefinition currentList;
+    private int overrideListId;
+    private int nextListId = 1;
+    /** While reading a {@code \pn} group. */
+    private boolean pnNumbered;
+    private ListFormat pnNumbering = ListFormat.DECIMAL;
+    private int pnLevel;
+    /** The list of the last paragraph if it was a WordPad list item, so that the next one continues it. */
+    private int lastPnList;
 
     // Page setup
     private int paperWidth = -1;
@@ -263,6 +297,32 @@ final class RtfReader {
         boolean on = !hasParameter || parameter != 0;
         if (first) {
             if (state.destination == Destination.SKIP) return;
+            if (state.destination == Destination.LIST_TABLE) {
+                if (word.equals("list")) {
+                    currentList = new ListDefinition();
+                    return;
+                }
+                if (word.equals("listlevel")) {
+                    if (currentList != null) currentList.levels.add(ListFormat.DECIMAL);
+                    return;
+                }
+            }
+            if (word.equals("listtable")) {
+                state.destination = Destination.LIST_TABLE;
+                return;
+            }
+            if (word.equals("listoverridetable")) {
+                state.destination = Destination.LIST_OVERRIDES;
+                return;
+            }
+            if (word.equals("pn") && state.destination == Destination.TEXT) {
+                flushText();
+                state.destination = Destination.PN;
+                pnNumbered = false;
+                pnNumbering = ListFormat.DECIMAL;
+                pnLevel = 0;
+                return;
+            }
             if (word.equals("fonttbl")) {
                 state.destination = Destination.FONT_TABLE;
                 return;
@@ -291,7 +351,55 @@ final class RtfReader {
                     }
                 }
             }
+            case LIST_TABLE -> {
+                switch (word) {
+                    case "levelnfc", "levelnfcn" -> {
+                        if (currentList != null && !currentList.levels.isEmpty()) {
+                            currentList.levels.set(currentList.levels.size() - 1, ListFormat.ofRtf(parameter));
+                        }
+                    }
+                    case "listid" -> {
+                        if (currentList != null) lists.put(parameter, currentList);
+                    }
+                    default -> {
+                    }
+                }
+            }
+            case LIST_OVERRIDES -> {
+                switch (word) {
+                    case "listid" -> overrideListId = parameter;
+                    case "ls" -> overrides.put(parameter, overrideListId);
+                    default -> {
+                    }
+                }
+            }
+            case PN -> pnWord(word, parameter);
             case TEXT -> textWord(word, hasParameter, parameter, on);
+        }
+    }
+
+    /** WordPad's lists: {@code {\*\pn\pnlvlblt ...}} for bullets, {@code \pnlvlbody\pndec} for numbers. */
+    private void pnWord(String word, int parameter) {
+        switch (word) {
+            case "pnlvlblt" -> {
+                pnNumbered = false;
+                pnLevel = 0;
+            }
+            case "pnlvlbody" -> {
+                pnNumbered = true;
+                pnLevel = 0;
+            }
+            case "pnlvl" -> {
+                pnNumbered = true;
+                pnLevel = Math.max(0, Math.min(ListAttributes.MAX_LEVEL, parameter - 1));
+            }
+            case "pndec" -> pnNumbering = ListFormat.DECIMAL;
+            case "pnlcltr" -> pnNumbering = ListFormat.LOWER_LETTER;
+            case "pnucltr" -> pnNumbering = ListFormat.UPPER_LETTER;
+            case "pnlcrm" -> pnNumbering = ListFormat.LOWER_ROMAN;
+            case "pnucrm" -> pnNumbering = ListFormat.UPPER_ROMAN;
+            default -> {
+            }
         }
     }
 
@@ -378,6 +486,8 @@ final class RtfReader {
             case "tx", "tb" -> {
                 if (hasParameter && parameter >= 0) state.addTab(parameter);
             }
+            case "ls" -> state.listOverride = parameter;
+            case "ilvl" -> state.listLevel = Math.max(0, Math.min(ListAttributes.MAX_LEVEL, parameter));
             default -> {
                 // unknown or unsupported: ignored
             }
@@ -388,6 +498,7 @@ final class RtfReader {
         flushBytes();
         State inner = state;
         if (inner.destination == Destination.FONT_TABLE && entryName.length() > 0) addFont();
+        boolean pnEnded = inner.destination == Destination.PN;
         if (stack.size() == 1 && !rootClosed) {
             // The end of the document: the last paragraph keeps the formatting in effect inside it.
             flushText();
@@ -396,6 +507,11 @@ final class RtfReader {
         }
         if (inner.destination == Destination.TEXT && !stack.isEmpty() && differs(inner, stack.peek())) flushText();
         state = stack.isEmpty() ? new State() : stack.pop();
+        if (pnEnded) {
+            // The group only describes the list: the paragraph around it is the list item.
+            state.pnFormat = pnNumbered ? pnNumbering : ListFormat.BULLET;
+            state.pnLevel = pnLevel;
+        }
         groupStart = false;
         ignorable = false;
         skipChars = 0;
@@ -509,6 +625,7 @@ final class RtfReader {
         int end = document.getLength();
         int length = Math.max(1, end - paragraphStart);
         document.setParagraphAttributes(paragraphStart, length, paragraphAttributes(state), false);
+        lastPnList = state.pnFormat != null ? pnListId : 0;
         if (ended) paragraphStart = end;
     }
 
@@ -539,7 +656,9 @@ final class RtfReader {
         return a;
     }
 
-    private static SimpleAttributeSet paragraphAttributes(State s) {
+    private int pnListId;
+
+    private SimpleAttributeSet paragraphAttributes(State s) {
         SimpleAttributeSet a = new SimpleAttributeSet();
         StyleConstants.setAlignment(a, s.alignment);
         StyleConstants.setLeftIndent(a, (float) Units.twipsToPoints(s.leftIndent));
@@ -554,6 +673,15 @@ final class RtfReader {
             List<TabStop> sorted = new ArrayList<>(s.tabs);
             sorted.sort((x, y) -> Float.compare(x.getPosition(), y.getPosition()));
             StyleConstants.setTabSet(a, new TabSet(sorted.toArray(TabStop[]::new)));
+        }
+        if (s.listOverride > 0) {
+            int list = listIds.computeIfAbsent(s.listOverride, ls -> nextListId++);
+            ListDefinition definition = lists.get(overrides.getOrDefault(s.listOverride, -1));
+            ListFormat format = definition != null ? definition.level(s.listLevel) : ListFormat.numberingFor(s.listLevel);
+            ListAttributes.set(a, list, s.listLevel, format);
+        } else if (s.pnFormat != null) {
+            pnListId = lastPnList != 0 ? lastPnList : nextListId++;
+            ListAttributes.set(a, pnListId, s.pnLevel, s.pnFormat);
         }
         return a;
     }

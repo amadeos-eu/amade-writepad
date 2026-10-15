@@ -1,17 +1,33 @@
 package org.datazuul.amadeos.writepad.service.layout;
 
+import org.datazuul.amadeos.writepad.service.list.ListAttributes;
+import org.datazuul.amadeos.writepad.service.list.ListNumbering;
+
 import javax.swing.SizeRequirements;
+import javax.swing.text.AttributeSet;
+import javax.swing.text.BadLocationException;
 import javax.swing.text.Element;
 import javax.swing.text.ParagraphView;
+import javax.swing.text.Position;
 import javax.swing.text.StyleConstants;
+import javax.swing.text.StyledDocument;
 import javax.swing.text.TabStop;
 import javax.swing.text.View;
+import java.awt.Container;
+import java.awt.Font;
+import java.awt.FontMetrics;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.Rectangle;
+import java.awt.Shape;
 
 /**
  * A paragraph whose lines never cross a page boundary: a line that would run into the bottom margin moves
  * to the top of the next page. {@link PagedSectionView} tells the paragraph where it starts before laying
  * it out, so that the paragraph knows where the page boundaries fall.
+ *
+ * <p>A list item's text starts at the left indent on every line; its label ("•", "2.", ...) is painted in
+ * front of it, at the first line's indent, and is not part of the text.
  *
  * <p>Tabs follow {@link TabStops}, measured from the left margin. Swing's own tab handling measures from a
  * position it only learns while painting, so lines could break differently before and after the first
@@ -24,6 +40,9 @@ final class PagedParagraphView extends ParagraphView {
             java.text.DecimalFormatSymbols.getInstance().getDecimalSeparator()};
 
     private final PageLayout layout;
+    private boolean listItem;
+    /** Where a list item's label starts, relative to the left indent. */
+    private int labelIndent;
     private int startY = -1;
     /** Space added in front of moved lines in the last layout. */
     private int pushed;
@@ -71,6 +90,57 @@ final class PagedParagraphView extends ParagraphView {
         req.preferred += pushed;
         req.maximum += pushed;
         return req;
+    }
+
+    @Override
+    protected void setPropertiesFromAttributes() {
+        super.setPropertiesFromAttributes();
+        listItem = ListAttributes.isListItem(getAttributes());
+        if (listItem) {
+            // The label takes the first line's indent; the text itself starts where the other lines do.
+            labelIndent = firstLineIndent;
+            firstLineIndent = 0;
+        }
+    }
+
+    @Override
+    public void paint(Graphics g, Shape a) {
+        super.paint(g, a);
+        if (listItem) paintLabel(g, a);
+    }
+
+    /** Space kept between a label that does not fit its indent and the text. */
+    private static final float LABEL_GAP = 3f;
+
+    private void paintLabel(Graphics g, Shape a) {
+        if (!(getDocument() instanceof StyledDocument document)) return;
+        String label = ListNumbering.label(document, getElement());
+        if (label == null) return;
+        Rectangle alloc = a.getBounds();
+        Shape first;
+        try {
+            first = modelToView(getStartOffset(), a, Position.Bias.Forward);
+        } catch (BadLocationException e) {
+            return;
+        }
+        AttributeSet chars = document.getCharacterElement(getStartOffset()).getAttributes();
+        Font font = document.getFont(chars);
+        Container host = getContainer();
+        FontMetrics fm = host != null ? host.getFontMetrics(font) : g.getFontMetrics(font);
+        float text = alloc.x + getLeftInset();
+        float x = text + labelIndent;
+        float width = (float) fm.getStringBounds(label, g).getWidth();
+        if (x + width > text - LABEL_GAP) x = text - LABEL_GAP - width;
+        Rectangle line = first.getBounds();
+        float baseline = line.y + line.height - fm.getDescent();
+        Graphics2D g2 = (Graphics2D) g.create();
+        try {
+            g2.setFont(font);
+            g2.setColor(document.getForeground(chars));
+            g2.drawString(label, x, baseline);
+        } finally {
+            g2.dispose();
+        }
     }
 
     /** Where the text column starts: paragraphs sit at the section's left inset. */

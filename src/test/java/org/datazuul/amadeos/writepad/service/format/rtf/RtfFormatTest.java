@@ -7,9 +7,13 @@ import org.datazuul.amadeos.writepad.domain.PaperSize;
 import org.datazuul.amadeos.writepad.domain.Units;
 import org.datazuul.amadeos.writepad.service.format.DocumentContent;
 import org.datazuul.amadeos.writepad.service.format.Documents;
+import org.datazuul.amadeos.writepad.service.list.ListAttributes;
+import org.datazuul.amadeos.writepad.service.list.ListFormat;
+import org.datazuul.amadeos.writepad.service.list.ListNumbering;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.text.AttributeSet;
+import javax.swing.text.Element;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.SimpleAttributeSet;
 import javax.swing.text.StyleConstants;
@@ -329,6 +333,60 @@ class RtfFormatTest {
             assertEquals(expected.getAlignment(), back.getTab(i).getAlignment());
             assertEquals(expected.getLeader(), back.getTab(i).getLeader());
         }
+    }
+
+    private static String labels(DocumentContent c) {
+        StringBuilder s = new StringBuilder();
+        Element root = c.document().getDefaultRootElement();
+        for (int i = 0; i < root.getElementCount(); i++) {
+            String label = ListNumbering.label(c.document(), root.getElement(i));
+            if (i > 0) s.append(' ');
+            s.append(label == null ? "-" : label);
+        }
+        return s.toString();
+    }
+
+    /** Written by LibreOffice 24.2 from a flat ODT with a bulleted, a nested numbered and a Roman list. */
+    @Test
+    void readsLibreOfficeLists() throws IOException {
+        DocumentContent c = fixture("libreoffice-lists.rtf");
+        assertEquals("Intro\nApfel\nBirne\nErstens\nUnterpunkt\nNoch einer\nZweitens\nKapitel\nKapitel", text(c),
+                "the labels are not text");
+        assertEquals("- • • 1. a. b. 2. I. II.", labels(c));
+        AttributeSet sub = paragraphAt(c, "Unterpunkt");
+        assertEquals(1, ListAttributes.level(sub));
+        assertEquals(54f, StyleConstants.getLeftIndent(sub), 0.1f);
+        assertEquals(-18f, StyleConstants.getFirstLineIndent(sub), 0.1f);
+    }
+
+    @Test
+    void readsWordPadLists() throws IOException {
+        assertEquals("- - • -", labels(fixture("wordpad.rtf")), "{\\*\\pn\\pnlvlblt} bullets");
+        DocumentContent numbered = fixture("wordpad-numbered.rtf");
+        assertEquals("Vorher\nEins\nZwei\nDrei\nDazwischen\nNeu", text(numbered));
+        assertEquals("- 1. 2. 3. - I.", labels(numbered), "a list after a paragraph in between starts again");
+    }
+
+    @Test
+    void writesListsThatReadBack() throws IOException, BadLocationException {
+        StyledDocument doc = Documents.newDocument();
+        doc.insertString(0, "a\nb\nc\nd\ne\nf", null);
+        Element root = doc.getDefaultRootElement();
+        Object[][] items = {{1, 0, ListFormat.BULLET}, {1, 1, ListFormat.BULLET}, {0, 0, ListFormat.BULLET},
+                {2, 0, ListFormat.UPPER_ROMAN}, {2, 1, ListFormat.LOWER_LETTER}, {2, 0, ListFormat.UPPER_ROMAN}};
+        for (int i = 0; i < items.length; i++) {
+            SimpleAttributeSet a = new SimpleAttributeSet();
+            ListAttributes.set(a, (Integer) items[i][0], (Integer) items[i][1], (ListFormat) items[i][2]);
+            doc.setParagraphAttributes(root.getElement(i).getStartOffset(), 1, a, false);
+        }
+        byte[] rtf = format.write(new DocumentContent(doc, DocumentSettings.DEFAULT));
+        String written = new String(rtf, StandardCharsets.US_ASCII);
+        assertTrue(written.contains("{\\*\\listtable"), written);
+        assertTrue(written.contains("{\\listtext\\pard\\plain II.\\tab}\\pard"), written);
+        assertTrue(written.contains("\\ls2\\ilvl1"), written);
+        DocumentContent back = format.read(rtf);
+        assertEquals("a\nb\nc\nd\ne\nf", text(back), "list text written for old programs is skipped again");
+        assertEquals("• ◦ - I. a. II.", labels(back));
     }
 
     @Test

@@ -1,5 +1,8 @@
 package org.datazuul.amadeos.writepad.ui.editor;
 
+import org.datazuul.amadeos.writepad.service.list.ListAttributes;
+import org.datazuul.amadeos.writepad.service.list.ListFormat;
+
 import javax.swing.text.AttributeSet;
 import javax.swing.text.Element;
 import javax.swing.text.SimpleAttributeSet;
@@ -12,6 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.TreeMap;
 
 /**
@@ -150,6 +154,190 @@ public final class TextFormatting {
         SimpleAttributeSet attributes = new SimpleAttributeSet();
         StyleConstants.setTabSet(attributes, new TabSet(byPosition.values().toArray(TabStop[]::new)));
         editor.setParagraphAttributes(attributes, false);
+    }
+
+    // ---------------------------------------------------------------- lists
+
+    /** The list format of the paragraph at the caret; empty if it is not a list item. */
+    public Optional<ListFormat> listFormat() {
+        AttributeSet p = paragraphAttributes();
+        return ListAttributes.isListItem(p) ? Optional.of(ListAttributes.format(p)) : Optional.empty();
+    }
+
+    public boolean isListItem() {
+        return ListAttributes.isListItem(paragraphAttributes());
+    }
+
+    /**
+     * Bullets on or off for the selected paragraphs, as the format bar button: off if they all have bullets,
+     * else every one becomes a bullet item, joining a bulleted list right before or after the selection.
+     */
+    public void toggleBullets() {
+        toggleList(true);
+    }
+
+    /** Numbering on or off, as {@link #toggleBullets()}; numbered items keep their style. */
+    public void toggleNumbering() {
+        toggleList(false);
+    }
+
+    private void toggleList(boolean bullets) {
+        List<Element> paragraphs = selectedParagraphs();
+        boolean all = paragraphs.stream().map(Element::getAttributes)
+                .allMatch(a -> ListAttributes.isListItem(a) && ListAttributes.format(a).isBullet() == bullets);
+        if (all) {
+            for (Element p : paragraphs) removeList(p, false);
+            return;
+        }
+        int list = neighbouringList(paragraphs, bullets);
+        for (Element p : paragraphs) {
+            AttributeSet a = p.getAttributes();
+            boolean inList = ListAttributes.isListItem(a);
+            int level = inList ? ListAttributes.level(a) : 0;
+            ListFormat format = bullets ? ListFormat.BULLET
+                    : inList && !ListAttributes.format(a).isBullet() ? ListAttributes.format(a)
+                    : ListFormat.numberingFor(level);
+            setListItem(p, list, level, format);
+        }
+    }
+
+    /**
+     * One level deeper (+1) or higher (-1) for the selected list items; numbering in the default style of
+     * the level follows the level (1. becomes a.).
+     *
+     * @return false if no selected paragraph is a list item
+     */
+    public boolean changeLevel(int delta) {
+        boolean changed = false;
+        for (Element p : selectedParagraphs()) {
+            AttributeSet a = p.getAttributes();
+            if (!ListAttributes.isListItem(a)) continue;
+            int old = ListAttributes.level(a);
+            int level = Math.max(0, Math.min(ListAttributes.MAX_LEVEL, old + delta));
+            ListFormat format = ListAttributes.format(a);
+            if (format == ListFormat.numberingFor(old)) format = ListFormat.numberingFor(level);
+            setListItem(p, ListAttributes.list(a), level, format);
+            changed = true;
+        }
+        return changed;
+    }
+
+    /** Numbering starts again at 1 with the item at the caret: it and the rest of its list form a new list. */
+    public boolean restartNumbering() {
+        Element paragraph = caretParagraph();
+        int old = ListAttributes.list(paragraph.getAttributes());
+        if (old == 0) return false;
+        moveRestOfList(paragraph, old, maxList() + 1);
+        return true;
+    }
+
+    /** The item at the caret and the rest of its list continue the list before it. */
+    public boolean continueNumbering() {
+        Element paragraph = caretParagraph();
+        int old = ListAttributes.list(paragraph.getAttributes());
+        if (old == 0) return false;
+        Element root = editor.getStyledDocument().getDefaultRootElement();
+        for (int i = root.getElementIndex(paragraph.getStartOffset()) - 1; i >= 0; i--) {
+            int list = ListAttributes.list(root.getElement(i).getAttributes());
+            if (list != 0 && list != old) {
+                moveRestOfList(paragraph, old, list);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Takes the paragraph at the caret out of its list: Enter on an empty item and Backspace at the start of
+     * an item do this. With {@code keepIndent} the text stays where it is (Backspace), else it goes back to
+     * the margin.
+     */
+    public void endListAtCaret(boolean keepIndent) {
+        removeList(caretParagraph(), keepIndent);
+    }
+
+    private void moveRestOfList(Element from, int oldList, int newList) {
+        Element root = editor.getStyledDocument().getDefaultRootElement();
+        SimpleAttributeSet attributes = new SimpleAttributeSet();
+        attributes.addAttribute(ListAttributes.LIST, newList);
+        for (int i = root.getElementIndex(from.getStartOffset()); i < root.getElementCount(); i++) {
+            Element p = root.getElement(i);
+            if (ListAttributes.list(p.getAttributes()) == oldList) setParagraph(p, attributes);
+        }
+    }
+
+    /** The list before (or else after) the paragraphs if it has the same kind of marks, else a new one. */
+    private int neighbouringList(List<Element> paragraphs, boolean bullets) {
+        Element root = editor.getStyledDocument().getDefaultRootElement();
+        int first = root.getElementIndex(paragraphs.get(0).getStartOffset());
+        int last = root.getElementIndex(paragraphs.get(paragraphs.size() - 1).getStartOffset());
+        for (int i : new int[]{first - 1, last + 1}) {
+            if (i < 0 || i >= root.getElementCount()) continue;
+            AttributeSet a = root.getElement(i).getAttributes();
+            if (ListAttributes.isListItem(a) && ListAttributes.format(a).isBullet() == bullets) {
+                return ListAttributes.list(a);
+            }
+        }
+        for (Element p : paragraphs) {
+            AttributeSet a = p.getAttributes();
+            if (ListAttributes.isListItem(a) && ListAttributes.format(a).isBullet() == bullets) {
+                return ListAttributes.list(a);
+            }
+        }
+        return maxList() + 1;
+    }
+
+    private int maxList() {
+        Element root = editor.getStyledDocument().getDefaultRootElement();
+        int max = 0;
+        for (int i = 0; i < root.getElementCount(); i++) {
+            max = Math.max(max, ListAttributes.list(root.getElement(i).getAttributes()));
+        }
+        return max;
+    }
+
+    private void setListItem(Element paragraph, int list, int level, ListFormat format) {
+        SimpleAttributeSet attributes = new SimpleAttributeSet();
+        ListAttributes.set(attributes, list, level, format);
+        StyleConstants.setLeftIndent(attributes, ListAttributes.leftIndent(level));
+        StyleConstants.setFirstLineIndent(attributes, -ListAttributes.STEP);
+        setParagraph(paragraph, attributes);
+    }
+
+    private void removeList(Element paragraph, boolean keepIndent) {
+        SimpleAttributeSet attributes = new SimpleAttributeSet();
+        ListAttributes.set(attributes, 0, 0, ListFormat.BULLET);
+        if (!keepIndent) StyleConstants.setLeftIndent(attributes, 0);
+        StyleConstants.setFirstLineIndent(attributes, 0);
+        setParagraph(paragraph, attributes);
+    }
+
+    private void setParagraph(Element paragraph, AttributeSet attributes) {
+        int start = paragraph.getStartOffset();
+        // Swing changes the paragraphs from offset to offset + length - 1: the paragraph's own line break.
+        editor.getStyledDocument().setParagraphAttributes(start, Math.max(1, paragraph.getEndOffset() - start),
+                attributes, false);
+    }
+
+    private Element caretParagraph() {
+        return editor.getStyledDocument().getParagraphElement(editor.getCaretPosition());
+    }
+
+    /**
+     * The paragraphs the selection touches; a selection that ends right at the start of a paragraph does not
+     * include it.
+     */
+    public List<Element> selectedParagraphs() {
+        StyledDocument doc = editor.getStyledDocument();
+        int start = editor.getSelectionStart();
+        int end = editor.getSelectionEnd();
+        if (end > start) end--;
+        Element root = doc.getDefaultRootElement();
+        List<Element> paragraphs = new ArrayList<>();
+        for (int i = root.getElementIndex(start); i <= root.getElementIndex(end); i++) {
+            paragraphs.add(root.getElement(i));
+        }
+        return paragraphs;
     }
 
     /** {@link StyleConstants#ALIGN_LEFT}, {@code ALIGN_CENTER}, {@code ALIGN_RIGHT} or {@code ALIGN_JUSTIFIED}. */

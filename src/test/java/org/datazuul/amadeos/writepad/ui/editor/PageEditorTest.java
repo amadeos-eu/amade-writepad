@@ -218,6 +218,48 @@ class PageEditorTest {
         return (float) ((view(offset).getX() - editor.textColumnX()) / layout.zoom());
     }
 
+    /** A list item's text starts at the left indent on every line; the label is painted before it. */
+    @Test
+    void listItemsShowTheirLabelInFrontOfTheText() throws Exception {
+        OnEdt.run(() -> {
+            layout = new PageLayout(DocumentSettings.DEFAULT, 2);
+            editor = new PageEditor(layout);
+            try {
+                editor.getDocument().insertString(0, "Item with enough text to wrap onto a second line at this width, "
+                        + "and a few more words so that it surely does.", null);
+            } catch (BadLocationException e) {
+                throw new AssertionError(e);
+            }
+            new TextFormatting(editor).toggleNumbering();
+            fit();
+            assertEquals(18, margin("Item"), 0.6, "first line at the left indent, not at the label");
+            int secondLine = text().indexOf("surely");
+            assertEquals(18, margin(text().substring(firstOnSecondLine())), 0.6);
+            BufferedImage image = new BufferedImage(editor.getWidth(), editor.getHeight(), BufferedImage.TYPE_INT_RGB);
+            Graphics2D g = image.createGraphics();
+            editor.paint(g);
+            g.dispose();
+            Rectangle first = view(0);
+            int ink = 0;
+            for (int x = (int) editor.textColumnX(); x < first.x - 2; x++) {
+                for (int y = first.y; y < first.y + first.height; y++) {
+                    if ((image.getRGB(x, y) & 0xFF) < 100) ink++;
+                }
+            }
+            assertTrue(ink > 20, "the label \"1.\" is painted in front of the text: " + ink + " dark pixels");
+            assertTrue(secondLine > 0);
+        });
+    }
+
+    /** The text of the second line, from its first character. */
+    private int firstOnSecondLine() {
+        int firstY = view(0).y;
+        for (int offset = 1; offset < text().length(); offset++) {
+            if (view(offset).y > firstY) return offset;
+        }
+        throw new AssertionError("no second line");
+    }
+
     @Test
     void pagesAreCentredInAWiderWindow() throws Exception {
         withSample(DocumentSettings.DEFAULT, 1, () -> {
