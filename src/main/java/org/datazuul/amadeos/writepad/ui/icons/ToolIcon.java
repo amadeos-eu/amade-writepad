@@ -26,8 +26,11 @@ import java.util.function.Supplier;
  * disabled), paper in the theme's field colour.
  */
 public final class ToolIcon implements Icon {
-    /** Size on screen at 100 % scaling. */
-    public static final int SIZE = 16;
+    /**
+     * Size in toolbars at 100 % scaling, as large as the icons of LibreOffice's toolbars. The glyphs are
+     * drawn on a 16-unit grid and scaled to this size.
+     */
+    public static final int SIZE = 22;
 
     public enum Glyph {
         NEW, OPEN, SAVE, PRINT, PREVIEW, CUT, COPY, PASTE, UNDO, REDO, FIND,
