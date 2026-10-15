@@ -11,11 +11,14 @@ import javax.swing.JViewport;
 import javax.swing.SwingUtilities;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.View;
+import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.FontMetrics;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.Insets;
 import java.awt.Rectangle;
 import java.awt.Toolkit;
@@ -34,6 +37,7 @@ public final class PageEditor extends JTextPane {
 
     private final PageLayout layout;
     private IntFunction<String> footer = page -> null;
+    private double guide = Double.NaN;
 
     public PageEditor(PageLayout layout) {
         this.layout = Objects.requireNonNull(layout, "layout");
@@ -72,6 +76,41 @@ public final class PageEditor extends JTextPane {
     @Override
     public FontMetrics getFontMetrics(Font font) {
         return LayoutMetrics.of(font);
+    }
+
+    /**
+     * Where the text column (the left page margin) is, in this component's pixels. Pages are centred when
+     * the editor is wider than a page, as {@code PagedSectionView} paints them.
+     */
+    public double textColumnX() {
+        double zoom = layout.zoom();
+        double centring = Math.max(0, (getWidth() - layout.totalWidth() * zoom) / 2);
+        return centring + (PageLayout.GAP + layout.left()) * zoom;
+    }
+
+    /** Shows a dotted vertical line at x (pixels) while the ruler drags a marker; NaN hides it. */
+    public void setGuide(double x) {
+        if (Double.compare(x, guide) == 0) return;
+        guide = x;
+        repaint();
+    }
+
+    @Override
+    protected void paintComponent(Graphics g) {
+        super.paintComponent(g);
+        if (Double.isNaN(guide)) return;
+        Graphics2D g2 = (Graphics2D) g.create();
+        try {
+            g2.setColor(Color.GRAY);
+            g2.setStroke(new BasicStroke(1f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 1f, new float[]{2f, 2f}, 0f));
+            Rectangle clip = g2.getClipBounds();
+            int top = clip == null ? 0 : clip.y;
+            int bottom = clip == null ? getHeight() : clip.y + clip.height;
+            int x = (int) Math.round(guide);
+            g2.drawLine(x, top, x, bottom);
+        } finally {
+            g2.dispose();
+        }
     }
 
     /** Text in the bottom margin of each page (0-based page index), e.g. page numbers. */

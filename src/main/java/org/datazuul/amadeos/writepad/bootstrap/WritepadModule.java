@@ -8,6 +8,7 @@ import com.google.inject.multibindings.Multibinder;
 import org.datazuul.amadeos.commons.i18n.Messages;
 import org.datazuul.amadeos.commons.swing.EdtExecutor;
 import org.datazuul.amadeos.writepad.domain.DocumentSettings;
+import org.datazuul.amadeos.writepad.domain.MeasurementUnit;
 import org.datazuul.amadeos.writepad.service.DocumentService;
 import org.datazuul.amadeos.writepad.service.format.DocumentFormat;
 import org.datazuul.amadeos.writepad.service.format.FormatRegistry;
@@ -60,6 +61,13 @@ public final class WritepadModule extends AbstractModule {
     @Singleton
     PageLayout pageLayout(@ScreenScale DoubleSupplier screenScale) {
         return new PageLayout(DocumentSettings.DEFAULT, screenScale.getAsDouble());
+    }
+
+    /** Centimetres or inches, from the region the user lives in. */
+    @Provides
+    @Singleton
+    MeasurementUnit measurementUnit() {
+        return MeasurementUnit.fromEnvironment(System.getenv(), Locale.getDefault(Locale.Category.FORMAT));
     }
 
     /** Continues on the event dispatch thread after background work. */

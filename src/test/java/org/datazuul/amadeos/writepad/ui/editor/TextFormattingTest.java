@@ -8,7 +8,9 @@ import org.junit.jupiter.api.Test;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.StyleConstants;
 import javax.swing.text.StyledDocument;
+import javax.swing.text.TabStop;
 import java.awt.Color;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -83,6 +85,29 @@ class TextFormattingTest {
             assertTrue(state.strikeThrough());
             editor.select(4, 6);
             assertEquals(12, formatting.state().size());
+        });
+    }
+
+    @Test
+    void indentsSpacingAndTabsApplyToAllSelectedParagraphs() throws Exception {
+        withText("one\ntwo\nthree", () -> {
+            editor.select(1, 6);
+            formatting.setIndents(new TextFormatting.Indents(36, 18, 10));
+            formatting.setSpacing(new TextFormatting.Spacing(6, 12, 1.5f));
+            formatting.setTabs(List.of(new TabStop(200), new TabStop(100, TabStop.ALIGN_RIGHT, TabStop.LEAD_NONE),
+                    new TabStop(100.001f)));
+            editor.setCaretPosition(5);
+            assertEquals(new TextFormatting.Indents(36, 18, 10), formatting.indents());
+            assertEquals(-18f, StyleConstants.getFirstLineIndent(formatting.paragraphAttributes()));
+            assertEquals(new TextFormatting.Spacing(6, 12, 1.5f), formatting.spacing());
+            assertEquals(0.5f, StyleConstants.getLineSpacing(formatting.paragraphAttributes()));
+            List<TabStop> tabs = formatting.tabs();
+            assertEquals(2, tabs.size(), "stops at the same position merged");
+            assertEquals(100f, tabs.get(0).getPosition(), 0.01f);
+            assertEquals(200f, tabs.get(1).getPosition(), "sorted");
+            editor.setCaretPosition(10);
+            assertEquals(new TextFormatting.Indents(0, 0, 0), formatting.indents(), "third paragraph unchanged");
+            assertEquals(List.of(), formatting.tabs());
         });
     }
 

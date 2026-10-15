@@ -14,6 +14,8 @@ import javax.swing.text.BadLocationException;
 import javax.swing.text.SimpleAttributeSet;
 import javax.swing.text.StyleConstants;
 import javax.swing.text.StyledDocument;
+import javax.swing.text.TabSet;
+import javax.swing.text.TabStop;
 import java.awt.Color;
 import java.io.IOException;
 import java.io.InputStream;
@@ -284,6 +286,49 @@ class RtfFormatTest {
         assertTrue(written.contains("\\'e4\\'f6\\'fc\\'80"), written);
         assertTrue(written.contains("\\u1046?"), written);
         assertTrue(written.contains("\\u-10179?\\u-8704?"), written);
+    }
+
+    @Test
+    void readsTabStops() throws IOException {
+        DocumentContent c = read("{\\rtf1 \\pard\\tx1134\\tqc\\tx2835\\tqr\\tldot\\tx4536\\tqdec\\tx5670\\tb6000 One\\par"
+                + "\\pard Two{\\tx100 ignored in a group that ends before the paragraph}\\par\\pard\\tx720 Three}");
+        TabSet one = StyleConstants.getTabSet(paragraphAt(c, "One"));
+        assertEquals(5, one.getTabCount());
+        assertEquals(56.7f, one.getTab(0).getPosition(), 0.01f);
+        assertEquals(TabStop.ALIGN_LEFT, one.getTab(0).getAlignment());
+        assertEquals(TabStop.ALIGN_CENTER, one.getTab(1).getAlignment());
+        assertEquals(TabStop.ALIGN_RIGHT, one.getTab(2).getAlignment());
+        assertEquals(TabStop.LEAD_DOTS, one.getTab(2).getLeader());
+        assertEquals(TabStop.LEAD_NONE, one.getTab(3).getLeader());
+        assertEquals(TabStop.ALIGN_DECIMAL, one.getTab(3).getAlignment());
+        assertEquals(300f, one.getTab(4).getPosition(), 0.01f, "bar tab");
+        assertEquals(null, StyleConstants.getTabSet(paragraphAt(c, "Two")), "\\pard clears the stops");
+        assertEquals(36f, StyleConstants.getTabSet(paragraphAt(c, "Three")).getTab(0).getPosition());
+    }
+
+    @Test
+    void writesTabStopsAndIndentsBack() throws IOException, BadLocationException {
+        StyledDocument doc = Documents.newDocument();
+        doc.insertString(0, "a\tb\tc", null);
+        SimpleAttributeSet p = new SimpleAttributeSet();
+        StyleConstants.setTabSet(p, new TabSet(new TabStop[]{new TabStop(56.7f),
+                new TabStop(141.75f, TabStop.ALIGN_CENTER, TabStop.LEAD_NONE),
+                new TabStop(300f, TabStop.ALIGN_RIGHT, TabStop.LEAD_DOTS),
+                new TabStop(400f, TabStop.ALIGN_DECIMAL, TabStop.LEAD_HYPHENS)}));
+        StyleConstants.setLeftIndent(p, 56.7f);
+        StyleConstants.setFirstLineIndent(p, -28.35f);
+        doc.setParagraphAttributes(0, 1, p, false);
+        byte[] rtf = format.write(new DocumentContent(doc, DocumentSettings.DEFAULT));
+        assertTrue(new String(rtf, StandardCharsets.US_ASCII).contains(
+                "\\li1134\\fi-567\\tx1134\\tqc\\tx2835\\tqr\\tldot\\tx6000\\tqdec\\tlhyph\\tx8000"));
+        TabSet back = StyleConstants.getTabSet(paragraphAt(format.read(rtf), "a"));
+        assertEquals(4, back.getTabCount());
+        for (int i = 0; i < 4; i++) {
+            TabStop expected = StyleConstants.getTabSet(p).getTab(i);
+            assertEquals(expected.getPosition(), back.getTab(i).getPosition(), 0.05f);
+            assertEquals(expected.getAlignment(), back.getTab(i).getAlignment());
+            assertEquals(expected.getLeader(), back.getTab(i).getLeader());
+        }
     }
 
     @Test

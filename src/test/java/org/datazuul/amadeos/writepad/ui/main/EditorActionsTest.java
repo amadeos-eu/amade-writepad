@@ -6,7 +6,9 @@ import org.datazuul.amadeos.commons.i18n.Messages;
 import org.datazuul.amadeos.writepad.bootstrap.WritepadModule;
 import org.datazuul.amadeos.writepad.domain.DocumentSettings;
 import org.datazuul.amadeos.writepad.service.layout.PageLayout;
+import org.datazuul.amadeos.writepad.ui.dialog.ParagraphDialog;
 import org.datazuul.amadeos.writepad.ui.editor.PageEditor;
+import org.datazuul.amadeos.writepad.ui.editor.TextFormatting;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -15,10 +17,13 @@ import javax.swing.JToggleButton;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultStyledDocument;
 import javax.swing.text.StyleConstants;
+import javax.swing.text.TabStop;
 import java.awt.Color;
 import java.awt.event.ActionEvent;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -135,6 +140,33 @@ class EditorActionsTest {
             actions.applyColor(Color.RED);
             assertEquals(Color.RED, StyleConstants.getForeground(
                     editor.getStyledDocument().getCharacterElement(1).getAttributes()));
+        });
+    }
+
+    @Test
+    void paragraphAndTabsDialogsChangeTheParagraph() throws Exception {
+        withEditor("text", () -> {
+            actions.setDialogs(new EditorActions.Dialogs() {
+                @Override
+                public Optional<ParagraphDialog.Values> paragraph(ParagraphDialog.Values current) {
+                    assertEquals(StyleConstants.ALIGN_LEFT, current.alignment());
+                    return Optional.of(new ParagraphDialog.Values(new TextFormatting.Indents(20, 30, 0),
+                            new TextFormatting.Spacing(0, 6, 2), StyleConstants.ALIGN_RIGHT));
+                }
+
+                @Override
+                public Optional<List<TabStop>> tabs(List<TabStop> current) {
+                    return Optional.of(List.of(new TabStop(99)));
+                }
+            });
+            perform(actions.paragraph);
+            perform(actions.tabs);
+            assertEquals(new TextFormatting.Indents(20, 30, 0), actions.formatting().indents());
+            assertEquals(StyleConstants.ALIGN_RIGHT, actions.formatting().state().alignment());
+            assertTrue(selected(actions.alignRight));
+            assertEquals(99f, actions.formatting().tabs().get(0).getPosition());
+            perform(actions.undoAction);
+            assertEquals(List.of(), actions.formatting().tabs(), "undoable");
         });
     }
 

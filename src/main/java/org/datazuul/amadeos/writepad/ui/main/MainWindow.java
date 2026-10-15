@@ -5,6 +5,7 @@ import org.datazuul.amadeos.commons.i18n.LocaleSettings;
 import org.datazuul.amadeos.commons.i18n.Messages;
 import org.datazuul.amadeos.commons.swing.EdtExecutor;
 import org.datazuul.amadeos.writepad.domain.DocumentSettings;
+import org.datazuul.amadeos.writepad.domain.MeasurementUnit;
 import org.datazuul.amadeos.writepad.repository.WritepadPreferences.Bar;
 import org.datazuul.amadeos.writepad.service.format.DocumentFormat;
 import org.datazuul.amadeos.writepad.service.format.Documents;
@@ -13,8 +14,12 @@ import org.datazuul.amadeos.writepad.service.layout.PageLayout;
 import org.datazuul.amadeos.writepad.service.layout.PagedSectionView;
 import org.datazuul.amadeos.writepad.service.print.PrintService;
 import org.datazuul.amadeos.writepad.ui.dialog.PageSetupDialog;
+import org.datazuul.amadeos.writepad.ui.dialog.ParagraphDialog;
+import org.datazuul.amadeos.writepad.ui.dialog.TabsDialog;
 import org.datazuul.amadeos.writepad.ui.editor.PageEditor;
 import org.datazuul.amadeos.writepad.ui.editor.SampleText;
+import org.datazuul.amadeos.writepad.ui.editor.TextFormatting;
+import org.datazuul.amadeos.writepad.ui.ruler.Ruler;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
@@ -34,6 +39,7 @@ import javax.swing.event.DocumentListener;
 import javax.swing.filechooser.FileFilter;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.text.StyledDocument;
+import javax.swing.text.TabStop;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
@@ -50,15 +56,18 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * The main window: menu bar, toolbar and format bar, the page editor on its desk, and a status bar with
- * page, paper and zoom.
+ * The main window: menu bar, toolbar and format bar, the ruler, the page editor on its desk, and a status
+ * bar with page, paper and zoom.
  */
 public final class MainWindow extends JFrame implements MainView {
     private final PageLayout layout;
     private final Messages msg;
     private final LocaleSettings locales;
     private final PrintService printService;
+    private final MeasurementUnit unit;
     private final PageEditor editor;
+    private final JScrollPane scroll;
+    private Ruler ruler;
     private final JLabel pageStatus = new JLabel();
     private final JLabel paperStatus = new JLabel();
     private final JComboBox<String> zoom = new JComboBox<>();
@@ -73,19 +82,21 @@ public final class MainWindow extends JFrame implements MainView {
     private File lastDirectory;
 
     @Inject
-    public MainWindow(PageLayout layout, Messages msg, LocaleSettings locales, PrintService printService) {
+    public MainWindow(PageLayout layout, Messages msg, LocaleSettings locales, PrintService printService,
+                      MeasurementUnit unit) {
         super(msg.get("window.title"));
         EdtExecutor.requireEdt();
         this.layout = layout;
         this.msg = msg;
         this.locales = locales;
         this.printService = printService;
+        this.unit = unit;
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         editor = new PageEditor(layout);
         editor.setFooter(page -> msg.format("footer.page", page + 1, editor.section().pageCount()));
         editor.addCaretListener(e -> SwingUtilities.invokeLater(this::caretMoved));
 
-        JScrollPane scroll = new JScrollPane(editor);
+        scroll = new JScrollPane(editor);
         scroll.getVerticalScrollBar().setUnitIncrement(24);
         scroll.setBorder(BorderFactory.createBevelBorder(BevelBorder.LOWERED));
         add(scroll, BorderLayout.CENTER);
@@ -103,6 +114,32 @@ public final class MainWindow extends JFrame implements MainView {
         EdtExecutor.requireEdt();
         this.presenter = presenter;
         actions = new EditorActions(editor, presenter, msg);
+        actions.setDialogs(new EditorActions.Dialogs() {
+            @Override
+            public Optional<ParagraphDialog.Values> paragraph(ParagraphDialog.Values current) {
+                return new ParagraphDialog(msg, unit, current).showDialog(MainWindow.this);
+            }
+
+            @Override
+            public Optional<List<TabStop>> tabs(List<TabStop> current) {
+                return new TabsDialog(msg, unit, current, layout.contentWidth()).showDialog(MainWindow.this);
+            }
+        });
+        ruler = new Ruler(editor, unit, msg);
+        ruler.setListener(new Ruler.Listener() {
+            @Override
+            public void indentsChanged(TextFormatting.Indents indents) {
+                actions.formatting().setIndents(indents);
+                actions.update();
+            }
+
+            @Override
+            public void tabsChanged(List<TabStop> tabs) {
+                actions.formatting().setTabs(tabs);
+                actions.update();
+            }
+        });
+        actions.addUpdateListener(() -> ruler.show(actions.formatting().indents(), actions.formatting().tabs()));
         installDocument(Documents.newDocument());
         menuBar = new MainMenuBar(presenter, actions, msg, locales);
         setJMenuBar(menuBar);
@@ -147,6 +184,7 @@ public final class MainWindow extends JFrame implements MainView {
         switch (bar) {
             case TOOLBAR -> toolBar.setVisible(visible);
             case FORMAT_BAR -> formatBar.setVisible(visible);
+            case RULER -> scroll.setColumnHeaderView(visible ? ruler : null);
             case STATUS_BAR -> statusBar.setVisible(visible);
         }
         revalidate();

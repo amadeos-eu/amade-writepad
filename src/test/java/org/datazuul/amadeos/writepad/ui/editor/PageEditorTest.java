@@ -9,6 +9,13 @@ import org.datazuul.amadeos.writepad.service.layout.PageLayout;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.text.BadLocationException;
+import javax.swing.text.SimpleAttributeSet;
+import javax.swing.text.StyleConstants;
+import javax.swing.text.StyledDocument;
+import javax.swing.text.TabSet;
+import javax.swing.text.TabStop;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
 import java.awt.Font;
 import java.awt.Point;
 import java.awt.font.FontRenderContext;
@@ -147,6 +154,68 @@ class PageEditorTest {
                 assertEquals(end, hit, "zoom " + zoom);
             });
         }
+    }
+
+    /** Tab stops measured from the margin, the same before and after painting, at every zoom. */
+    @Test
+    void tabsLandOnTheirStops() throws Exception {
+        for (double zoom : new double[]{1, 4.0 / 3}) {
+            OnEdt.run(() -> {
+                layout = new PageLayout(DocumentSettings.DEFAULT, zoom);
+                editor = new PageEditor(layout);
+                StyledDocument doc = editor.getStyledDocument();
+                try {
+                    doc.insertString(0, "a\tL\tR\tC c\tx\n1.\tHanging\nC\tcentred", null);
+                } catch (BadLocationException e) {
+                    throw new AssertionError(e);
+                }
+                SimpleAttributeSet tabs = new SimpleAttributeSet();
+                StyleConstants.setTabSet(tabs, new TabSet(new TabStop[]{new TabStop(100),
+                        new TabStop(200, TabStop.ALIGN_RIGHT, TabStop.LEAD_NONE),
+                        new TabStop(300, TabStop.ALIGN_CENTER, TabStop.LEAD_NONE)}));
+                doc.setParagraphAttributes(0, 1, tabs, false);
+                SimpleAttributeSet hanging = new SimpleAttributeSet();
+                StyleConstants.setLeftIndent(hanging, 50);
+                StyleConstants.setFirstLineIndent(hanging, -30);
+                doc.setParagraphAttributes(text().indexOf("1."), 1, hanging, false);
+                SimpleAttributeSet centred = new SimpleAttributeSet();
+                StyleConstants.setAlignment(centred, StyleConstants.ALIGN_CENTER);
+                doc.setParagraphAttributes(text().indexOf("C\tc"), 1, centred, false);
+                // One pixel at this zoom, as modelToView answers in whole pixels.
+                double px = 1 / zoom + 0.05;
+                for (int round = 0; round < 2; round++) {
+                    fit();
+                    assertEquals(100, margin("L"), px, "left tab, zoom " + zoom);
+                    assertEquals(200, margin("\tC") , px, "right tab ends at the stop");
+                    float centre = (margin("C c") + margin("\tx")) / 2;
+                    assertEquals(300, centre, px, "centre tab");
+                    assertEquals(324, margin("x"), px, "default stop after the last");
+                    assertEquals(50, margin("Hanging"), px, "hanging indent is a stop");
+                    float gap = margin("centred") - margin("\tcentred");
+                    assertEquals(18, gap, px, "fixed gap in centred paragraphs");
+                    // Painting must not move anything.
+                    BufferedImage image = new BufferedImage(editor.getWidth(), 200, BufferedImage.TYPE_INT_RGB);
+                    Graphics2D g = image.createGraphics();
+                    editor.paint(g);
+                    g.dispose();
+                }
+            });
+        }
+    }
+
+    private String text() {
+        try {
+            return editor.getDocument().getText(0, editor.getDocument().getLength());
+        } catch (BadLocationException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    /** Points from the left margin of the first occurrence of the text. */
+    private float margin(String text) {
+        int offset = text().indexOf(text);
+        assertTrue(offset >= 0, text);
+        return (float) ((view(offset).getX() - editor.textColumnX()) / layout.zoom());
     }
 
     @Test
