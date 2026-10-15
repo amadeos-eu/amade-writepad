@@ -19,6 +19,8 @@ Step 1 of the plan, the page-view spike: styled text laid out on real pages (A5,
 
 Toolbar (new, print, cut/copy/paste, undo/redo) and format bar (font, size, bold, italic, underline, strike-through, text colour, alignment) as in WordPad; the format bar shows the formatting at the caret. Both, and the status bar, can be hidden in *View*.
 
+**Ruler** (View → Ruler) as in WordPad: first-line, hanging/left and right indent markers to drag, tab stops (left, centre, right, decimal; the box on the left chooses the kind) set by a click, moved by dragging, removed by dragging them off. Snaps to quarter centimetres (eighth inches in the US); Alt places freely. *Format → Paragraph* sets indents, spacing, line spacing and alignment exactly, *Format → Tabs* lists the stops. Tabs are measured from the left margin as in RTF and Word; a hanging indent works as a tab stop on the first line.
+
 Opens and saves **RTF** (the default) and **plain text**. RTF from WordPad, Word and LibreOffice is read with fonts, sizes, bold/italic/underline/strike-through, super-/subscript, colours, alignment, indents, spacing and the page setup; what amade-writepad writes opens in LibreOffice with all of that intact. Pictures, tables and lists are skipped for now. The window title shows the file and `*` for unsaved changes; New, Open and Exit ask before discarding them. `amade-writepad Brief.rtf` opens a file from the command line.
 
 ## Architecture
@@ -30,6 +32,7 @@ Java 21, Swing and Guice; theme, Motif look, language and start-up come from [am
 - `service.format`: `DocumentFormat` (one per file type, read and write bytes), `FormatRegistry` (finds the format by content, then extension), `rtf.RtfReader`/`RtfWriter`, `txt.PlainTextFormat`. `service.DocumentService` reads and writes files on a background thread.
 - `service.print`: `DocumentPageable` paints each page with the same views, unscaled; `PrintService` asks for the paper through the print dialog.
 - `ui`: `PageEditor` (the `JTextPane` on the dark desk), `TextFormatting` (formatting of selection or caret), `EditorActions` (one action per command, shared by menus and bars), `MainToolBar`, `FormatBar`, `MainWindow`, `MainMenuBar`, `MainPresenter`, `PageSetupDialog`.
+- `ui.ruler`: `Ruler` (the component, in the scroll pane's column header) and `RulerModel` (markers and dragging, without Swing). `service.layout.TabStops` decides where a tab goes.
 - `ui.icons`: `ToolIcon`, the toolbar icons drawn in Java2D in the theme's colours, so the app needs no icon theme.
 - `repository`: `DocumentFiles` (atomic writes that keep file permissions), `WritepadPreferences` (`~/.config/amadeos/writepad/writepad.properties`).
 

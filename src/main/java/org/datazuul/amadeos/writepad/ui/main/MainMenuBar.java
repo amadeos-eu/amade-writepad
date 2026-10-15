@@ -100,6 +100,9 @@ public final class MainMenuBar extends JMenuBar {
         format.add(radio(actions.alignRight));
         format.add(radio(actions.alignJustify));
         format.addSeparator();
+        format.add(item(actions.paragraph));
+        format.add(item(actions.tabs));
+        format.addSeparator();
         format.add(check(actions.bullets));
         format.add(check(actions.numbering));
         format.addSeparator();
@@ -142,6 +145,7 @@ public final class MainMenuBar extends JMenuBar {
         return switch (bar) {
             case TOOLBAR -> "menu.view.toolbar";
             case FORMAT_BAR -> "menu.view.format-bar";
+            case RULER -> "menu.view.ruler";
             case STATUS_BAR -> "menu.view.status-bar";
         };
     }

@@ -17,7 +17,7 @@ public class WritepadPreferences {
     public static final String FILE = "writepad.properties";
 
     public enum Bar {
-        TOOLBAR, FORMAT_BAR, STATUS_BAR;
+        TOOLBAR, FORMAT_BAR, RULER, STATUS_BAR;
 
         String key() {
             return "show." + name().toLowerCase(Locale.ROOT).replace('_', '-');

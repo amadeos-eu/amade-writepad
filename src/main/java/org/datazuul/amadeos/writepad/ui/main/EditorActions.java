@@ -2,6 +2,7 @@ package org.datazuul.amadeos.writepad.ui.main;
 
 import org.datazuul.amadeos.commons.i18n.Messages;
 import org.datazuul.amadeos.commons.swing.EdtExecutor;
+import org.datazuul.amadeos.writepad.ui.dialog.ParagraphDialog;
 import org.datazuul.amadeos.writepad.ui.editor.PageEditor;
 import org.datazuul.amadeos.writepad.ui.editor.TextFormatting;
 import org.datazuul.amadeos.writepad.ui.icons.ToolIcon;
@@ -13,6 +14,7 @@ import javax.swing.JColorChooser;
 import javax.swing.KeyStroke;
 import javax.swing.text.StyleConstants;
 import javax.swing.text.StyledDocument;
+import javax.swing.text.TabStop;
 import javax.swing.undo.CannotRedoException;
 import javax.swing.undo.CannotUndoException;
 import javax.swing.undo.UndoManager;
@@ -22,6 +24,7 @@ import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Objects;
 import java.util.function.Consumer;
 
@@ -66,6 +69,21 @@ public final class EditorActions {
     public final Action alignJustify;
     public final Action bullets;
     public final Action numbering;
+    public final Action paragraph;
+    public final Action tabs;
+    private Dialogs dialogs = new Dialogs() {
+    };
+
+    /** The dialogs the paragraph and tabs actions show; the window supplies them, tests replace them. */
+    public interface Dialogs {
+        default Optional<ParagraphDialog.Values> paragraph(ParagraphDialog.Values current) {
+            return Optional.empty();
+        }
+
+        default Optional<List<TabStop>> tabs(List<TabStop> current) {
+            return Optional.empty();
+        }
+    }
 
     public EditorActions(PageEditor editor, MainPresenter presenter, Messages msg) {
         EdtExecutor.requireEdt();
@@ -108,6 +126,26 @@ public final class EditorActions {
         bullets.putValue(Action.SELECTED_KEY, false);
         numbering = disabled("menu.format.numbering", "tip.numbering", Glyph.NUMBERING, 0);
         numbering.putValue(Action.SELECTED_KEY, false);
+        paragraph = action("menu.format.paragraph", "tip.paragraph", null, 0, e -> paragraphDialog());
+        tabs = action("menu.format.tabs", "tip.tabs", null, 0, e -> tabsDialog());
+    }
+
+    public void setDialogs(Dialogs dialogs) {
+        this.dialogs = Objects.requireNonNull(dialogs, "dialogs");
+    }
+
+    private void paragraphDialog() {
+        ParagraphDialog.Values current = new ParagraphDialog.Values(formatting.indents(), formatting.spacing(),
+                formatting.state().alignment());
+        dialogs.paragraph(current).ifPresent(values -> edit(() -> {
+            formatting.setIndents(values.indents());
+            formatting.setSpacing(values.spacing());
+            formatting.setAlignment(values.alignment());
+        }));
+    }
+
+    private void tabsDialog() {
+        dialogs.tabs(formatting.tabs()).ifPresent(stops -> edit(() -> formatting.setTabs(stops)));
     }
 
     public TextFormatting formatting() {
@@ -198,7 +236,7 @@ public final class EditorActions {
         };
         action.putValue(Action.ACTION_COMMAND_KEY, nameKey);
         action.putValue(Action.SHORT_DESCRIPTION, msg.get(tipKey));
-        action.putValue(Action.LARGE_ICON_KEY, new ToolIcon(glyph));
+        if (glyph != null) action.putValue(Action.LARGE_ICON_KEY, new ToolIcon(glyph));
         if (key != 0) action.putValue(Action.ACCELERATOR_KEY, KeyStroke.getKeyStroke(key, CTRL));
         return action;
     }

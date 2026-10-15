@@ -11,6 +11,8 @@ import javax.swing.text.BadLocationException;
 import javax.swing.text.Element;
 import javax.swing.text.StyleConstants;
 import javax.swing.text.StyledDocument;
+import javax.swing.text.TabSet;
+import javax.swing.text.TabStop;
 import java.awt.Color;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
@@ -107,6 +109,10 @@ final class RtfWriter {
         twips("\\sa", StyleConstants.getSpaceBelow(a));
         float lineSpacing = StyleConstants.getLineSpacing(a);
         if (lineSpacing > 0) body.append("\\sl").append(Math.round((1 + lineSpacing) * 240)).append("\\slmult1");
+        TabSet tabs = StyleConstants.getTabSet(a);
+        if (tabs != null) {
+            for (int i = 0; i < tabs.getTabCount(); i++) tab(tabs.getTab(i));
+        }
         body.append(' ');
         for (int r = 0; r < paragraph.getElementCount(); r++) {
             Element run = paragraph.getElement(r);
@@ -154,6 +160,26 @@ final class RtfWriter {
                     "\\fmodern";
             default -> "\\fnil";
         };
+    }
+
+    private void tab(TabStop tab) {
+        switch (tab.getAlignment()) {
+            case TabStop.ALIGN_CENTER -> body.append("\\tqc");
+            case TabStop.ALIGN_RIGHT -> body.append("\\tqr");
+            case TabStop.ALIGN_DECIMAL -> body.append("\\tqdec");
+            default -> {
+            }
+        }
+        switch (tab.getLeader()) {
+            case TabStop.LEAD_DOTS -> body.append("\\tldot");
+            case TabStop.LEAD_HYPHENS -> body.append("\\tlhyph");
+            case TabStop.LEAD_UNDERLINE -> body.append("\\tlul");
+            case TabStop.LEAD_THICKLINE -> body.append("\\tlth");
+            case TabStop.LEAD_EQUALS -> body.append("\\tleq");
+            default -> {
+            }
+        }
+        body.append("\\tx").append(Math.max(0, Units.pointsToTwips(tab.getPosition())));
     }
 
     private void twips(String word, float points) {

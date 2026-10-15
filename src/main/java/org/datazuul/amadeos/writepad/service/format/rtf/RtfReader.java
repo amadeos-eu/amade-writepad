@@ -12,6 +12,8 @@ import javax.swing.text.BadLocationException;
 import javax.swing.text.SimpleAttributeSet;
 import javax.swing.text.StyleConstants;
 import javax.swing.text.StyledDocument;
+import javax.swing.text.TabSet;
+import javax.swing.text.TabStop;
 import java.awt.Color;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -26,7 +28,7 @@ import java.util.Set;
 
 /**
  * Reads RTF into a styled document: text, fonts, sizes, bold, italic, underline, strike-through,
- * super-/subscript, colours, alignment, indents, spacing, line spacing and the page setup. Everything else
+ * super-/subscript, colours, alignment, indents, spacing, line spacing, tab stops and the page setup. Everything else
  * (pictures, headers, footnotes, fields' instructions, list definitions, style sheets, document info) is
  * skipped, so unknown content never breaks the import or appears as garbage.
  *
@@ -76,6 +78,10 @@ final class RtfReader {
         int spaceAfter;
         int lineSpacing;
         boolean lineMultiple;
+        /** Tab stops so far, never changed in place (groups share it): replaced on every change. */
+        List<TabStop> tabs = List.of();
+        int tabAlignment = TabStop.ALIGN_LEFT;
+        int tabLeader = TabStop.LEAD_NONE;
 
         @Override
         public State clone() {
@@ -98,6 +104,18 @@ final class RtfReader {
             alignment = StyleConstants.ALIGN_LEFT;
             leftIndent = rightIndent = firstIndent = spaceBefore = spaceAfter = lineSpacing = 0;
             lineMultiple = false;
+            tabs = List.of();
+            tabAlignment = TabStop.ALIGN_LEFT;
+            tabLeader = TabStop.LEAD_NONE;
+        }
+
+        /** {@code \tx} or {@code \tb}: a stop with the alignment and leader given just before it. */
+        void addTab(int twips) {
+            List<TabStop> more = new ArrayList<>(tabs);
+            more.add(new TabStop((float) Units.twipsToPoints(twips), tabAlignment, tabLeader));
+            tabs = List.copyOf(more);
+            tabAlignment = TabStop.ALIGN_LEFT;
+            tabLeader = TabStop.LEAD_NONE;
         }
     }
 
@@ -349,6 +367,17 @@ final class RtfReader {
             case "sa" -> state.spaceAfter = parameter;
             case "sl" -> state.lineSpacing = parameter;
             case "slmult" -> state.lineMultiple = on;
+            case "tqc" -> state.tabAlignment = TabStop.ALIGN_CENTER;
+            case "tqr" -> state.tabAlignment = TabStop.ALIGN_RIGHT;
+            case "tqdec" -> state.tabAlignment = TabStop.ALIGN_DECIMAL;
+            case "tldot", "tlmdot" -> state.tabLeader = TabStop.LEAD_DOTS;
+            case "tlhyph" -> state.tabLeader = TabStop.LEAD_HYPHENS;
+            case "tlul" -> state.tabLeader = TabStop.LEAD_UNDERLINE;
+            case "tlth" -> state.tabLeader = TabStop.LEAD_THICKLINE;
+            case "tleq" -> state.tabLeader = TabStop.LEAD_EQUALS;
+            case "tx", "tb" -> {
+                if (hasParameter && parameter >= 0) state.addTab(parameter);
+            }
             default -> {
                 // unknown or unsupported: ignored
             }
@@ -521,6 +550,11 @@ final class RtfReader {
         // Swing's line spacing is the extra space as a fraction of the line: 1.15 lines -> 0.15.
         float extra = s.lineMultiple && s.lineSpacing > 0 ? s.lineSpacing / 240f - 1 : 0;
         StyleConstants.setLineSpacing(a, Math.max(0, extra));
+        if (!s.tabs.isEmpty()) {
+            List<TabStop> sorted = new ArrayList<>(s.tabs);
+            sorted.sort((x, y) -> Float.compare(x.getPosition(), y.getPosition()));
+            StyleConstants.setTabSet(a, new TabSet(sorted.toArray(TabStop[]::new)));
+        }
         return a;
     }
 
