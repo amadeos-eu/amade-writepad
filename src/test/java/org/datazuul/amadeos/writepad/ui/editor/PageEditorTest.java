@@ -9,6 +9,7 @@ import org.datazuul.amadeos.writepad.service.layout.PageLayout;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.text.BadLocationException;
+import javax.swing.text.Position;
 import javax.swing.text.SimpleAttributeSet;
 import javax.swing.text.StyleConstants;
 import javax.swing.text.StyledDocument;
@@ -294,6 +295,41 @@ class PageEditorTest {
                 assertTrue(end.x > first.x);
             });
         }
+    }
+
+    /**
+     * After Shift+Enter the caret is on the new line, even though Swing's caret keeps a typed character's
+     * position with backward bias (drawn after the character before it).
+     */
+    @Test
+    void caretAfterABreakIsOnTheNewLine() throws Exception {
+        OnEdt.run(() -> {
+            layout = new PageLayout(DocumentSettings.DEFAULT, 1);
+            editor = new PageEditor(layout);
+            try {
+                editor.getDocument().insertString(0, "First", null);
+            } catch (BadLocationException e) {
+                throw new AssertionError(e);
+            }
+            new TextFormatting(editor).toggleBullets();
+            fit();
+            Rectangle first = view(0);
+            for (String typed : new String[]{"\u2028", "x\u2028"}) {
+                editor.setCaretPosition(editor.getDocument().getLength());
+                editor.replaceSelection(typed);
+                fit();
+                int caret = editor.getCaretPosition();
+                Rectangle backward;
+                try {
+                    backward = editor.getUI().modelToView2D(editor, caret, Position.Bias.Backward).getBounds();
+                } catch (BadLocationException e) {
+                    throw new AssertionError(e);
+                }
+                assertTrue(backward.y > first.y + first.height / 2, "caret on the new line: " + backward);
+                assertEquals(first.x, backward.x, 1, "at the text indent");
+                first = backward;
+            }
+        });
     }
 
     /** A justified line that ends in a break is not stretched, as in word processors. */

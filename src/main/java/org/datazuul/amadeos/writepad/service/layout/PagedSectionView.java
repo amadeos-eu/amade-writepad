@@ -1,5 +1,7 @@
 package org.datazuul.amadeos.writepad.service.layout;
 
+import org.datazuul.amadeos.writepad.service.format.WritepadDocument;
+
 import javax.swing.text.BadLocationException;
 import javax.swing.text.BoxView;
 import javax.swing.text.Caret;
@@ -223,15 +225,29 @@ public final class PagedSectionView extends BoxView {
 
     @Override
     public Shape modelToView(int pos, Shape allocation, Position.Bias b) throws BadLocationException {
-        Shape shape = super.modelToView(pos, pointsAllocation(), b);
+        Shape shape = super.modelToView(pos, pointsAllocation(), bias(pos, b));
         return toScreen(shape, allocation);
     }
 
     @Override
     public Shape modelToView(int p0, Position.Bias b0, int p1, Position.Bias b1, Shape allocation)
             throws BadLocationException {
-        Shape shape = super.modelToView(p0, b0, p1, b1, pointsAllocation());
+        Shape shape = super.modelToView(p0, bias(p0, b0), p1, b1, pointsAllocation());
         return toScreen(shape, allocation);
+    }
+
+    /**
+     * A position right after a line break is the start of the next line, also with backward bias: Swing's
+     * caret keeps that bias after typing, which would draw it at the end of the line before the break.
+     */
+    private Position.Bias bias(int pos, Position.Bias b) {
+        if (b != Position.Bias.Backward || pos <= 0) return b;
+        try {
+            return getDocument().getText(pos - 1, 1).charAt(0) == WritepadDocument.LINE_BREAK
+                    ? Position.Bias.Forward : b;
+        } catch (BadLocationException e) {
+            return b;
+        }
     }
 
     private Shape toScreen(Shape shape, Shape allocation) {
@@ -300,7 +316,7 @@ public final class PagedSectionView extends BoxView {
         Point2D.Double column = magic == null ? null : toPoints(magic.x, magic.y, allocation);
         if (magic != null) caret.setMagicCaretPosition(new Point((int) Math.round(column.x), (int) Math.round(column.y)));
         try {
-            int next = super.getNextVisualPositionFrom(pos, b, pointsAllocation(), direction, biasRet);
+            int next = super.getNextVisualPositionFrom(pos, bias(pos, b), pointsAllocation(), direction, biasRet);
             boolean vertical = direction == NORTH || direction == SOUTH;
             return vertical && column != null && next >= 0 ? nearestOnRow(next, column.x) : next;
         } finally {
