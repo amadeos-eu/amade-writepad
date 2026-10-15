@@ -10,7 +10,7 @@ public final class MainToolBar extends JToolBar {
         EdtExecutor.requireEdt();
         setName("toolbar");
         setFloatable(false);
-        setRollover(true);
+        setRollover(false);
         add(ToolButtons.button(actions.newDocument));
         add(ToolButtons.button(actions.open));
         add(ToolButtons.button(actions.save));

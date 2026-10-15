@@ -34,7 +34,7 @@ public final class FormatBar extends JToolBar {
         this.editor = editor;
         setName("formatbar");
         setFloatable(false);
-        setRollover(true);
+        setRollover(false);
 
         family = new JComboBox<>(fontFamilies());
         family.setName("font-family");
