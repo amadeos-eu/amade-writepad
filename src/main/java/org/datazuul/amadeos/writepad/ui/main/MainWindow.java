@@ -105,6 +105,8 @@ public final class MainWindow extends JFrame implements MainView {
         bars.setLayout(new BoxLayout(bars, BoxLayout.Y_AXIS));
         add(bars, BorderLayout.NORTH);
         layout.addChangeListener(this::layoutChanged);
+        java.net.URL icon = getClass().getResource("/icons/amade-writepad.png");
+        if (icon != null) setIconImage(new javax.swing.ImageIcon(icon).getImage());
         setPreferredSize(new Dimension(900, 760));
         pack();
         setLocationRelativeTo(null);

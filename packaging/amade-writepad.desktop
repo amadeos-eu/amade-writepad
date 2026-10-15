@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=amadeOS Writepad
+GenericName=Word Processor
+Comment=Write, lay out and print formatted documents
+Icon=amade-writepad
+Exec=/usr/bin/amade-writepad %F
+Terminal=false
+Categories=Office;WordProcessor;
+MimeType=application/vnd.oasis.opendocument.text;application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/msword;application/rtf;text/rtf;text/plain;
+Keywords=document;text;letter;word;writer;rtf;odt;docx;
+StartupNotify=true
