@@ -7,15 +7,23 @@ import org.datazuul.amadeos.writepad.domain.Margins;
 import org.datazuul.amadeos.writepad.domain.Orientation;
 import org.datazuul.amadeos.writepad.domain.PaperSize;
 import org.datazuul.amadeos.writepad.service.layout.PageLayout;
+import org.datazuul.amadeos.writepad.repository.WritepadPreferences;
+import org.datazuul.amadeos.writepad.repository.WritepadPreferences.Bar;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.awt.print.PrinterException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MainPresenterTest {
     private static final double SCREEN = 96 / 72.0;
@@ -23,7 +31,37 @@ class MainPresenterTest {
     private final FakeView view = new FakeView();
     private final PageLayout layout = new PageLayout(DocumentSettings.DEFAULT, SCREEN);
     private final Messages msg = Messages.load(WritepadModule.class, WritepadModule.MESSAGES, Locale.ENGLISH);
-    private final MainPresenter presenter = new MainPresenter(view, layout, msg, null, () -> SCREEN);
+    @TempDir
+    Path config;
+    private WritepadPreferences preferences;
+    private MainPresenter presenter;
+
+    @BeforeEach
+    void createPresenter() {
+        preferences = new WritepadPreferences(config.resolve("writepad.properties"));
+        presenter = new MainPresenter(view, layout, msg, null, () -> SCREEN, preferences);
+    }
+
+    @Test
+    void barsAreShownUntilSwitchedOffAndRemembered() {
+        assertTrue(presenter.isBarVisible(Bar.FORMAT_BAR));
+        presenter.setBarVisible(Bar.FORMAT_BAR, false);
+        assertEquals(List.of("hide FORMAT_BAR"), view.calls);
+        assertFalse(new WritepadPreferences(config.resolve("writepad.properties")).isVisible(Bar.FORMAT_BAR));
+        assertTrue(presenter.isBarVisible(Bar.TOOLBAR));
+    }
+
+    @Test
+    void barStillChangesWhenTheSettingCannotBeSaved() throws Exception {
+        Path blocked = config.resolve("blocked");
+        Files.writeString(blocked, "a file where a directory should be");
+        MainPresenter failing = new MainPresenter(view, layout, msg, null, () -> SCREEN,
+                new WritepadPreferences(blocked.resolve("writepad.properties")));
+        failing.setBarVisible(Bar.STATUS_BAR, false);
+        assertEquals(List.of("hide STATUS_BAR"), view.calls);
+        assertEquals(1, view.errors.size());
+        assertTrue(view.errors.get(0).startsWith("The settings could not be saved"), view.errors.get(0));
+    }
 
     @Test
     void startsAtTrueSize() {
@@ -114,6 +152,11 @@ class MainPresenterTest {
             if (printFailure != null) throw printFailure;
             calls.add("print");
             return true;
+        }
+
+        @Override
+        public void showBar(Bar bar, boolean visible) {
+            calls.add((visible ? "show " : "hide ") + bar);
         }
 
         @Override

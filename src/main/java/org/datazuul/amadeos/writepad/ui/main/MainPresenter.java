@@ -6,18 +6,21 @@ import org.datazuul.amadeos.commons.i18n.LocaleSettings;
 import org.datazuul.amadeos.commons.i18n.Messages;
 import org.datazuul.amadeos.writepad.domain.Orientation;
 import org.datazuul.amadeos.writepad.domain.PaperSize;
+import org.datazuul.amadeos.writepad.repository.WritepadPreferences;
+import org.datazuul.amadeos.writepad.repository.WritepadPreferences.Bar;
 import org.datazuul.amadeos.writepad.service.layout.PageLayout;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.awt.print.PrinterException;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.DoubleSupplier;
 
 /**
- * The actions of the main window, without Swing: page setup, zoom, printing, language.
+ * The actions of the main window, without Swing: page setup, zoom, printing, bars, language.
  */
 public final class MainPresenter {
     private static final Logger LOG = LoggerFactory.getLogger(MainPresenter.class);
@@ -29,15 +32,32 @@ public final class MainPresenter {
     private final Messages msg;
     private final LocaleSettings locales;
     private final DoubleSupplier screenScale;
+    private final WritepadPreferences preferences;
 
     @Inject
     public MainPresenter(MainView view, PageLayout layout, Messages msg, LocaleSettings locales,
-                         @ScreenScale DoubleSupplier screenScale) {
+                         @ScreenScale DoubleSupplier screenScale, WritepadPreferences preferences) {
         this.view = view;
         this.layout = layout;
         this.msg = msg;
         this.locales = locales;
         this.screenScale = screenScale;
+        this.preferences = preferences;
+    }
+
+    public boolean isBarVisible(Bar bar) {
+        return preferences.isVisible(bar);
+    }
+
+    /** Shows or hides a bar and remembers it; the window changes even if the setting cannot be saved. */
+    public void setBarVisible(Bar bar, boolean visible) {
+        view.showBar(bar, visible);
+        try {
+            preferences.setVisible(bar, visible);
+        } catch (UncheckedIOException e) {
+            LOG.warn("Could not save the preferences", e);
+            view.showError(msg.format("error.save-preferences", e.getCause().getMessage()));
+        }
     }
 
     public void newDocument() {

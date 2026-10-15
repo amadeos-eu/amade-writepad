@@ -5,6 +5,7 @@ import org.datazuul.amadeos.commons.i18n.LocaleSettings;
 import org.datazuul.amadeos.commons.i18n.Messages;
 import org.datazuul.amadeos.commons.swing.EdtExecutor;
 import org.datazuul.amadeos.writepad.domain.DocumentSettings;
+import org.datazuul.amadeos.writepad.repository.WritepadPreferences.Bar;
 import org.datazuul.amadeos.writepad.service.layout.PageLayout;
 import org.datazuul.amadeos.writepad.service.layout.PagedSectionView;
 import org.datazuul.amadeos.writepad.service.print.PrintService;
@@ -13,6 +14,7 @@ import org.datazuul.amadeos.writepad.ui.editor.PageEditor;
 import org.datazuul.amadeos.writepad.ui.editor.SampleText;
 
 import javax.swing.BorderFactory;
+import javax.swing.BoxLayout;
 import javax.swing.JComboBox;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -20,6 +22,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
+import javax.swing.JToolBar;
 import javax.swing.SwingUtilities;
 import javax.swing.border.BevelBorder;
 import javax.swing.event.DocumentEvent;
@@ -29,9 +32,6 @@ import javax.swing.text.Style;
 import javax.swing.text.StyleConstants;
 import javax.swing.text.StyleContext;
 import javax.swing.text.StyledDocument;
-import javax.swing.undo.CannotRedoException;
-import javax.swing.undo.CannotUndoException;
-import javax.swing.undo.UndoManager;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
@@ -42,7 +42,8 @@ import java.awt.print.PrinterException;
 import java.util.Optional;
 
 /**
- * The main window: menu bar, the page editor on its desk, and a status bar with page, paper and zoom.
+ * The main window: menu bar, toolbar and format bar, the page editor on its desk, and a status bar with
+ * page, paper and zoom.
  */
 public final class MainWindow extends JFrame implements MainView {
     private final PageLayout layout;
@@ -50,11 +51,15 @@ public final class MainWindow extends JFrame implements MainView {
     private final LocaleSettings locales;
     private final PrintService printService;
     private final PageEditor editor;
-    private final UndoManager undo = new UndoManager();
     private final JLabel pageStatus = new JLabel();
     private final JLabel paperStatus = new JLabel();
     private final JComboBox<String> zoom = new JComboBox<>();
+    private final JPanel statusBar;
+    private final JPanel bars = new JPanel();
     private MainMenuBar menuBar;
+    private MainToolBar toolBar;
+    private FormatBar formatBar;
+    private EditorActions actions;
     private MainPresenter presenter;
     private boolean updatingZoom;
 
@@ -69,14 +74,16 @@ public final class MainWindow extends JFrame implements MainView {
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         editor = new PageEditor(layout);
         editor.setFooter(page -> msg.format("footer.page", page + 1, editor.section().pageCount()));
-        editor.addCaretListener(e -> SwingUtilities.invokeLater(this::updateStatus));
-        installDocument(new DefaultStyledDocument());
+        editor.addCaretListener(e -> SwingUtilities.invokeLater(this::caretMoved));
 
         JScrollPane scroll = new JScrollPane(editor);
         scroll.getVerticalScrollBar().setUnitIncrement(24);
         scroll.setBorder(BorderFactory.createBevelBorder(BevelBorder.LOWERED));
         add(scroll, BorderLayout.CENTER);
-        add(statusBar(), BorderLayout.SOUTH);
+        statusBar = statusBar();
+        add(statusBar, BorderLayout.SOUTH);
+        bars.setLayout(new BoxLayout(bars, BoxLayout.Y_AXIS));
+        add(bars, BorderLayout.NORTH);
         layout.addChangeListener(this::layoutChanged);
         setPreferredSize(new Dimension(900, 760));
         pack();
@@ -86,8 +93,21 @@ public final class MainWindow extends JFrame implements MainView {
     public void bind(MainPresenter presenter) {
         EdtExecutor.requireEdt();
         this.presenter = presenter;
-        menuBar = new MainMenuBar(presenter, msg, locales, this::undo, this::redo);
+        actions = new EditorActions(editor, presenter, msg);
+        installDocument(new DefaultStyledDocument());
+        menuBar = new MainMenuBar(presenter, actions, msg, locales);
         setJMenuBar(menuBar);
+        toolBar = new MainToolBar(actions);
+        formatBar = new FormatBar(actions, editor, msg);
+        for (JToolBar bar : new JToolBar[]{toolBar, formatBar}) {
+            // Full width, so the bevel runs under the whole bar as in WordPad.
+            bar.setAlignmentX(LEFT_ALIGNMENT);
+            bar.setMaximumSize(new Dimension(Integer.MAX_VALUE, bar.getPreferredSize().height));
+        }
+        bars.add(toolBar);
+        bars.add(formatBar);
+        for (Bar bar : Bar.values()) showBar(bar, presenter.isBarVisible(bar));
+        actions.update();
         for (int percent : MainPresenter.ZOOM_STEPS) zoom.addItem(msg.format("zoom.percent", percent));
         zoom.addActionListener(e -> {
             if (!updatingZoom && zoom.getSelectedIndex() >= 0) {
@@ -105,6 +125,22 @@ public final class MainWindow extends JFrame implements MainView {
 
     public PageEditor editor() {
         return editor;
+    }
+
+    /** The actions of menus and bars, once {@link #bind} has run. */
+    public EditorActions actions() {
+        return actions;
+    }
+
+    @Override
+    public void showBar(Bar bar, boolean visible) {
+        EdtExecutor.requireEdt();
+        switch (bar) {
+            case TOOLBAR -> toolBar.setVisible(visible);
+            case FORMAT_BAR -> formatBar.setVisible(visible);
+            case STATUS_BAR -> statusBar.setVisible(visible);
+        }
+        revalidate();
     }
 
     @Override
@@ -177,42 +213,31 @@ public final class MainWindow extends JFrame implements MainView {
         StyleConstants.setFontFamily(base, PageEditor.DEFAULT_FONT.getFamily());
         StyleConstants.setFontSize(base, PageEditor.DEFAULT_FONT.getSize());
         editor.setStyledDocument(document);
-        undo.discardAllEdits();
-        document.addUndoableEditListener(undo);
+        actions.attach(document);
         // Document listeners run before the views have seen the change: update afterwards.
         document.addDocumentListener(new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) {
-                SwingUtilities.invokeLater(MainWindow.this::updateStatus);
+                SwingUtilities.invokeLater(MainWindow.this::caretMoved);
             }
 
             @Override
             public void removeUpdate(DocumentEvent e) {
-                SwingUtilities.invokeLater(MainWindow.this::updateStatus);
+                SwingUtilities.invokeLater(MainWindow.this::caretMoved);
             }
 
             @Override
             public void changedUpdate(DocumentEvent e) {
-                SwingUtilities.invokeLater(MainWindow.this::updateStatus);
+                SwingUtilities.invokeLater(MainWindow.this::caretMoved);
             }
         });
         updateStatus();
     }
 
-    private void undo() {
-        try {
-            if (undo.canUndo()) undo.undo();
-        } catch (CannotUndoException ignored) {
-            // nothing left to undo
-        }
-    }
-
-    private void redo() {
-        try {
-            if (undo.canRedo()) undo.redo();
-        } catch (CannotRedoException ignored) {
-            // nothing left to redo
-        }
+    /** After caret moves and edits: page number, and the formatting the bars show. */
+    private void caretMoved() {
+        updateStatus();
+        if (actions != null) actions.update();
     }
 
     private JPanel statusBar() {
@@ -239,7 +264,7 @@ public final class MainWindow extends JFrame implements MainView {
     private void layoutChanged() {
         DocumentSettings settings = layout.settings();
         paperStatus.setText(msg.format("status.paper", settings.paper().label(),
-                msg.get("orientation." + settings.orientation().name().toLowerCase())));
+                msg.get("orientation." + settings.orientation().name().toLowerCase(java.util.Locale.ROOT))));
         if (menuBar != null) menuBar.showSettings(settings);
         if (presenter != null) {
             updatingZoom = true;

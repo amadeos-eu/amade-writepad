@@ -1,6 +1,7 @@
 package org.datazuul.amadeos.writepad.ui.main;
 
 import org.datazuul.amadeos.writepad.domain.DocumentSettings;
+import org.datazuul.amadeos.writepad.repository.WritepadPreferences.Bar;
 
 import java.awt.print.PrinterException;
 import java.util.Optional;
@@ -22,6 +23,9 @@ public interface MainView {
      * @return false if the user cancelled
      */
     boolean print() throws PrinterException;
+
+    /** Shows or hides the toolbar, format bar or status bar. */
+    void showBar(Bar bar, boolean visible);
 
     void showError(String message);
 

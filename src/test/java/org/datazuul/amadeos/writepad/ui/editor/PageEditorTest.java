@@ -4,16 +4,15 @@ import org.datazuul.amadeos.writepad.domain.DocumentSettings;
 import org.datazuul.amadeos.writepad.domain.Margins;
 import org.datazuul.amadeos.writepad.domain.Orientation;
 import org.datazuul.amadeos.writepad.domain.PaperSize;
+import org.datazuul.amadeos.writepad.OnEdt;
 import org.datazuul.amadeos.writepad.service.layout.PageLayout;
 import org.junit.jupiter.api.Test;
 
-import javax.swing.SwingUtilities;
 import javax.swing.text.BadLocationException;
 import java.awt.Font;
 import java.awt.Point;
 import java.awt.font.FontRenderContext;
 import java.awt.Rectangle;
-import java.lang.reflect.InvocationTargetException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -191,12 +190,6 @@ class PageEditorTest {
     }
 
     static void onEdt(Runnable test) throws Exception {
-        try {
-            SwingUtilities.invokeAndWait(test);
-        } catch (InvocationTargetException e) {
-            if (e.getCause() instanceof Error error) throw error;
-            if (e.getCause() instanceof Exception exception) throw exception;
-            throw e;
-        }
+        OnEdt.run(test);
     }
 }
