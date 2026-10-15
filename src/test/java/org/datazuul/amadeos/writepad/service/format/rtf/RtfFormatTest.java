@@ -7,6 +7,7 @@ import org.datazuul.amadeos.writepad.domain.PaperSize;
 import org.datazuul.amadeos.writepad.domain.Units;
 import org.datazuul.amadeos.writepad.service.format.DocumentContent;
 import org.datazuul.amadeos.writepad.service.format.Documents;
+import org.datazuul.amadeos.writepad.service.format.WritepadDocument;
 import org.datazuul.amadeos.writepad.service.list.ListAttributes;
 import org.datazuul.amadeos.writepad.service.list.ListFormat;
 import org.datazuul.amadeos.writepad.service.list.ListNumbering;
@@ -387,6 +388,21 @@ class RtfFormatTest {
         DocumentContent back = format.read(rtf);
         assertEquals("a\nb\nc\nd\ne\nf", text(back), "list text written for old programs is skipped again");
         assertEquals("• ◦ - I. a. II.", labels(back));
+    }
+
+    /** {@code \\line} is a line break within the paragraph, in its own element, and is written back so. */
+    @Test
+    void lineBreaksReadAndWriteBack() throws IOException {
+        DocumentContent c = read("{\\rtf1 \\pard One\\line two{\\b\\line}\\line three\\par Next}");
+        assertEquals("One\u2028two\u2028\u2028three\nNext", text(c));
+        assertEquals(2, c.document().getDefaultRootElement().getElementCount());
+        assertTrue(WritepadDocument.isLineBreak(charAt(c, "\u2028two")));
+        assertFalse(WritepadDocument.isLineBreak(charAt(c, "two")));
+        assertTrue(StyleConstants.isBold(charAt(c, "\u2028\u2028")), "the break keeps its formatting");
+        assertFalse(StyleConstants.isBold(charAt(c, "three")));
+        String written = new String(format.write(c), StandardCharsets.US_ASCII);
+        assertTrue(written.contains("{\\f0\\fs24 \\line }"), written);
+        assertEquals(text(c), text(format.read(written.getBytes(StandardCharsets.US_ASCII))));
     }
 
     @Test

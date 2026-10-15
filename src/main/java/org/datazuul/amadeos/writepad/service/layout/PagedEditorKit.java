@@ -1,8 +1,11 @@
 package org.datazuul.amadeos.writepad.service.layout;
 
+import org.datazuul.amadeos.writepad.service.format.WritepadDocument;
+
 import javax.swing.text.AbstractDocument;
 import javax.swing.text.BoxView;
 import javax.swing.text.ComponentView;
+import javax.swing.text.Document;
 import javax.swing.text.Element;
 import javax.swing.text.IconView;
 import javax.swing.text.LabelView;
@@ -34,6 +37,12 @@ public final class PagedEditorKit extends StyledEditorKit {
         return factory;
     }
 
+    /** An editor without a loaded file gets the same kind of document as a new one. */
+    @Override
+    public Document createDefaultDocument() {
+        return new WritepadDocument();
+    }
+
     @Override
     public Object clone() {
         return new PagedEditorKit(layout);
@@ -47,7 +56,8 @@ public final class PagedEditorKit extends StyledEditorKit {
             return switch (kind) {
                 case AbstractDocument.SectionElementName -> new PagedSectionView(element, layout);
                 case AbstractDocument.ParagraphElementName -> new PagedParagraphView(element, layout);
-                case AbstractDocument.ContentElementName -> new LabelView(element);
+                case AbstractDocument.ContentElementName -> WritepadDocument.isLineBreak(element.getAttributes())
+                        ? new LineBreakView(element) : new LabelView(element);
                 case StyleConstants.ComponentElementName -> new ComponentView(element);
                 case StyleConstants.IconElementName -> new IconView(element);
                 default -> new BoxView(element, View.Y_AXIS);

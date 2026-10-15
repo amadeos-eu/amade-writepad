@@ -7,6 +7,7 @@ import org.datazuul.amadeos.writepad.domain.PaperSize;
 import org.datazuul.amadeos.writepad.domain.Units;
 import org.datazuul.amadeos.writepad.service.format.DocumentContent;
 import org.datazuul.amadeos.writepad.service.format.Documents;
+import org.datazuul.amadeos.writepad.service.format.WritepadDocument;
 import org.datazuul.amadeos.writepad.service.list.ListAttributes;
 import org.datazuul.amadeos.writepad.service.list.ListFormat;
 
@@ -434,7 +435,7 @@ final class RtfReader {
             }
             // text
             case "par", "sect" -> paragraph();
-            case "line" -> paragraph();
+            case "line" -> lineBreak();
             case "row" -> paragraph();
             case "tab", "cell" -> literal('\t');
             case "emdash" -> literal('—');
@@ -610,6 +611,13 @@ final class RtfReader {
         flushText();
         insert("\n", state);
         finishParagraph(true);
+    }
+
+    /** {@code \line}: a line break within the paragraph. */
+    private void lineBreak() {
+        flushBytes();
+        flushText();
+        insert(String.valueOf(WritepadDocument.LINE_BREAK), state);
     }
 
     private void insert(String s, State format) {

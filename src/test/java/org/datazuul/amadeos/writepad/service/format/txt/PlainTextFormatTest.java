@@ -43,6 +43,14 @@ class PlainTextFormatTest {
     }
 
     @Test
+    void lineBreaksBecomeLineEnds() throws Exception {
+        StyledDocument doc = Documents.newDocument();
+        doc.insertString(0, "a\u2028b\nc", null);
+        assertEquals("a\nb\nc", new String(format.write(new DocumentContent(doc, DocumentSettings.DEFAULT)),
+                StandardCharsets.UTF_8));
+    }
+
+    @Test
     void refusesBinaryFiles() {
         assertThrows(IOException.class, () -> format.read(new byte[]{'a', 0, 'b'}));
     }

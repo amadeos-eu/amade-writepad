@@ -5,6 +5,7 @@ import org.datazuul.amadeos.writepad.domain.Margins;
 import org.datazuul.amadeos.writepad.domain.Orientation;
 import org.datazuul.amadeos.writepad.domain.Units;
 import org.datazuul.amadeos.writepad.service.format.DocumentContent;
+import org.datazuul.amadeos.writepad.service.format.WritepadDocument;
 import org.datazuul.amadeos.writepad.service.list.ListAttributes;
 import org.datazuul.amadeos.writepad.service.list.ListFormat;
 import org.datazuul.amadeos.writepad.service.list.ListNumbering;
@@ -277,6 +278,7 @@ final class RtfWriter {
                 case '}' -> out.append("\\}");
                 case '\t' -> out.append("\\tab ");
                 case '\n' -> out.append("\\par\n");
+                case WritepadDocument.LINE_BREAK -> out.append("\\line ");
                 case '\u00A0' -> out.append("\\~");
                 default -> {
                     if (cp >= 0x20 && cp < 0x7F) {

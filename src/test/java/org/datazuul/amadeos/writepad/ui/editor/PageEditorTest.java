@@ -260,6 +260,65 @@ class PageEditorTest {
         throw new AssertionError("no second line");
     }
 
+    /** After a line break the text goes on on the next line, at the paragraph's (or list item's) indent. */
+    @Test
+    void lineBreaksStartANewLine() throws Exception {
+        for (double zoom : new double[]{1, 4.0 / 3}) {
+            OnEdt.run(() -> {
+                layout = new PageLayout(DocumentSettings.DEFAULT, zoom);
+                editor = new PageEditor(layout);
+                try {
+                    editor.getDocument().insertString(0, "First\u2028Second\u2028\u2028Fourth\nItem\u2028more", null);
+                } catch (BadLocationException e) {
+                    throw new AssertionError(e);
+                }
+                editor.setCaretPosition(text().indexOf("Item"));
+                new TextFormatting(editor).toggleNumbering();
+                fit();
+                Rectangle first = view(0);
+                Rectangle second = view(text().indexOf("Second"));
+                Rectangle fourth = view(text().indexOf("Fourth"));
+                assertEquals(first.x, second.x, 1, "same indent");
+                assertTrue(second.y > first.y + first.height / 2, "next line");
+                assertEquals(2 * (second.y - first.y), fourth.y - first.y, 2, "an empty line in between");
+                assertEquals(0, editor.getStyledDocument().getDefaultRootElement().getElementIndex(
+                        text().indexOf("Fourth")), "one paragraph");
+                Rectangle item = view(text().indexOf("Item"));
+                Rectangle more = view(text().indexOf("more"));
+                assertEquals(item.x, more.x, 1, "list item's second line at the text indent");
+                assertEquals(18, margin("more"), 1 / zoom + 0.1);
+                assertTrue(more.y > item.y);
+                // The caret can sit at the end of the line before the break.
+                Rectangle end = view(text().indexOf("\u2028"));
+                assertEquals(first.y, end.y, "zoom " + zoom);
+                assertTrue(end.x > first.x);
+            });
+        }
+    }
+
+    /** A justified line that ends in a break is not stretched, as in word processors. */
+    @Test
+    void justifiedLineBeforeABreakIsNotStretched() throws Exception {
+        OnEdt.run(() -> {
+            layout = new PageLayout(DocumentSettings.DEFAULT, 1);
+            editor = new PageEditor(layout);
+            try {
+                editor.getDocument().insertString(0, "Short words here\u2028next", null);
+            } catch (BadLocationException e) {
+                throw new AssertionError(e);
+            }
+            SimpleAttributeSet justified = new SimpleAttributeSet();
+            StyleConstants.setAlignment(justified, StyleConstants.ALIGN_JUSTIFIED);
+            editor.getStyledDocument().setParagraphAttributes(0, 1, justified, false);
+            fit();
+            float here = margin("here");
+            Font font = editor.getStyledDocument().getFont(editor.getStyledDocument().getCharacterElement(0)
+                    .getAttributes());
+            double natural = font.getStringBounds("Short words ", new FontRenderContext(null, true, true)).getWidth();
+            assertEquals(natural, here, 1.5);
+        });
+    }
+
     @Test
     void pagesAreCentredInAWiderWindow() throws Exception {
         withSample(DocumentSettings.DEFAULT, 1, () -> {
