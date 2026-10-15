@@ -1,10 +1,10 @@
 package org.datazuul.amadeos.writepad.ui.main;
 
 import org.datazuul.amadeos.writepad.OnEdt;
+import org.datazuul.amadeos.writepad.QueueExecutor;
 import org.datazuul.amadeos.commons.i18n.Messages;
 import org.datazuul.amadeos.writepad.bootstrap.WritepadModule;
 import org.datazuul.amadeos.writepad.domain.DocumentSettings;
-import org.datazuul.amadeos.writepad.repository.WritepadPreferences;
 import org.datazuul.amadeos.writepad.service.layout.PageLayout;
 import org.datazuul.amadeos.writepad.ui.editor.PageEditor;
 import org.junit.jupiter.api.Test;
@@ -29,8 +29,8 @@ class FormatBarTest {
         OnEdt.run(() -> {
             Messages msg = Messages.load(WritepadModule.class, WritepadModule.MESSAGES, Locale.ENGLISH);
             PageEditor editor = new PageEditor(new PageLayout(DocumentSettings.DEFAULT, 1));
-            MainPresenter presenter = new MainPresenter(null, new PageLayout(DocumentSettings.DEFAULT, 1), msg, null,
-                    () -> 1, new WritepadPreferences(config.resolve("p.properties")));
+            MainPresenter presenter = TestPresenters.create(null, new PageLayout(DocumentSettings.DEFAULT, 1), config,
+                    new QueueExecutor());
             EditorActions actions = new EditorActions(editor, presenter, msg);
             FormatBar bar = new FormatBar(actions, editor, msg);
             DefaultStyledDocument doc = new DefaultStyledDocument();
