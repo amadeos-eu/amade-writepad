@@ -105,6 +105,10 @@ public final class MainMenuBar extends JMenuBar {
         format.addSeparator();
         format.add(check(actions.bullets));
         format.add(check(actions.numbering));
+        format.add(item(actions.increaseLevel));
+        format.add(item(actions.decreaseLevel));
+        format.add(item(actions.restartNumbering));
+        format.add(item(actions.continueNumbering));
         format.addSeparator();
         JMenu paper = new JMenu(msg.get("menu.format.paper"));
         ButtonGroup paperGroup = new ButtonGroup();

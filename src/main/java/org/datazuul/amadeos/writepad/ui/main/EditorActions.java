@@ -2,6 +2,7 @@ package org.datazuul.amadeos.writepad.ui.main;
 
 import org.datazuul.amadeos.commons.i18n.Messages;
 import org.datazuul.amadeos.commons.swing.EdtExecutor;
+import org.datazuul.amadeos.writepad.service.list.ListFormat;
 import org.datazuul.amadeos.writepad.ui.dialog.ParagraphDialog;
 import org.datazuul.amadeos.writepad.ui.editor.PageEditor;
 import org.datazuul.amadeos.writepad.ui.editor.TextFormatting;
@@ -10,12 +11,18 @@ import org.datazuul.amadeos.writepad.ui.icons.ToolIcon.Glyph;
 
 import javax.swing.AbstractAction;
 import javax.swing.Action;
+import javax.swing.ActionMap;
+import javax.swing.InputMap;
+import javax.swing.JComponent;
 import javax.swing.JColorChooser;
 import javax.swing.KeyStroke;
+import javax.swing.text.DefaultEditorKit;
+import javax.swing.text.Element;
 import javax.swing.text.StyleConstants;
 import javax.swing.text.StyledDocument;
 import javax.swing.text.TabStop;
 import javax.swing.undo.CannotRedoException;
+import javax.swing.undo.CompoundEdit;
 import javax.swing.undo.CannotUndoException;
 import javax.swing.undo.UndoManager;
 import java.awt.Color;
@@ -26,6 +33,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Objects;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
 /**
@@ -69,8 +77,14 @@ public final class EditorActions {
     public final Action alignJustify;
     public final Action bullets;
     public final Action numbering;
+    public final Action increaseLevel;
+    public final Action decreaseLevel;
+    public final Action restartNumbering;
+    public final Action continueNumbering;
     public final Action paragraph;
     public final Action tabs;
+    /** Edits collected into one undo step while {@link #apply} runs. */
+    private CompoundEdit group;
     private Dialogs dialogs = new Dialogs() {
     };
 
@@ -121,13 +135,82 @@ public final class EditorActions {
                 StyleConstants.ALIGN_RIGHT);
         alignJustify = alignment("menu.format.align-justify", "tip.align-justify", Glyph.ALIGN_JUSTIFY,
                 KeyEvent.VK_J, StyleConstants.ALIGN_JUSTIFIED);
-        // Lists come with the ruler (step 3 of the plan).
-        bullets = disabled("menu.format.bullets", "tip.bullets", Glyph.BULLETS, 0);
-        bullets.putValue(Action.SELECTED_KEY, false);
-        numbering = disabled("menu.format.numbering", "tip.numbering", Glyph.NUMBERING, 0);
-        numbering.putValue(Action.SELECTED_KEY, false);
+        bullets = toggle("menu.format.bullets", "tip.bullets", Glyph.BULLETS, 0, formatting::toggleBullets);
+        numbering = toggle("menu.format.numbering", "tip.numbering", Glyph.NUMBERING, 0,
+                formatting::toggleNumbering);
+        increaseLevel = action("menu.format.increase-level", "tip.increase-level", null, 0,
+                e -> edit(() -> formatting.changeLevel(1)));
+        decreaseLevel = action("menu.format.decrease-level", "tip.decrease-level", null, 0,
+                e -> edit(() -> formatting.changeLevel(-1)));
+        restartNumbering = action("menu.format.restart-numbering", "tip.restart-numbering", null, 0,
+                e -> edit(formatting::restartNumbering));
+        continueNumbering = action("menu.format.continue-numbering", "tip.continue-numbering", null, 0,
+                e -> edit(formatting::continueNumbering));
         paragraph = action("menu.format.paragraph", "tip.paragraph", null, 0, e -> paragraphDialog());
         tabs = action("menu.format.tabs", "tip.tabs", null, 0, e -> tabsDialog());
+        installListKeys();
+    }
+
+    /**
+     * Keys that act differently in lists, as in Word: Tab at the start of an item (or with several paragraphs
+     * selected) indents it a level, Shift+Tab outdents it, Enter on an empty item and Backspace at the start
+     * of an item end the list there. Elsewhere the keys do what they always do.
+     */
+    private void installListKeys() {
+        InputMap keys = editor.getInputMap(JComponent.WHEN_FOCUSED);
+        ActionMap actions = editor.getActionMap();
+        Action insertTab = actions.get(DefaultEditorKit.insertTabAction);
+        Action insertBreak = actions.get(DefaultEditorKit.insertBreakAction);
+        Action deleteBefore = actions.get(DefaultEditorKit.deletePrevCharAction);
+        listKey(keys, actions, KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0), "writepad-tab", insertTab, () -> {
+            if (!formatting.isListItem() || !(atParagraphStart() || severalParagraphs())) return false;
+            edit(() -> formatting.changeLevel(1));
+            return true;
+        });
+        listKey(keys, actions, KeyStroke.getKeyStroke(KeyEvent.VK_TAB, InputEvent.SHIFT_DOWN_MASK),
+                "writepad-shift-tab", null, () -> {
+                    if (!formatting.isListItem()) return false;
+                    edit(() -> formatting.changeLevel(-1));
+                    return true;
+                });
+        listKey(keys, actions, KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "writepad-enter", insertBreak, () -> {
+            if (!formatting.isListItem() || !emptyParagraph()) return false;
+            edit(() -> formatting.endListAtCaret(false));
+            return true;
+        });
+        listKey(keys, actions, KeyStroke.getKeyStroke(KeyEvent.VK_BACK_SPACE, 0), "writepad-backspace",
+                deleteBefore, () -> {
+                    if (!formatting.isListItem() || !atParagraphStart()) return false;
+                    edit(() -> formatting.endListAtCaret(true));
+                    return true;
+                });
+    }
+
+    private void listKey(InputMap keys, ActionMap actions, KeyStroke key, String name, Action otherwise,
+                         BooleanSupplier inList) {
+        keys.put(key, name);
+        actions.put(name, new AbstractAction(name) {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                if (!editor.isEditable()) return;
+                if (!inList.getAsBoolean() && otherwise != null) otherwise.actionPerformed(e);
+            }
+        });
+    }
+
+    private boolean atParagraphStart() {
+        int caret = editor.getCaretPosition();
+        return editor.getSelectionStart() == editor.getSelectionEnd()
+                && editor.getStyledDocument().getParagraphElement(caret).getStartOffset() == caret;
+    }
+
+    private boolean severalParagraphs() {
+        return formatting.selectedParagraphs().size() > 1;
+    }
+
+    private boolean emptyParagraph() {
+        Element p = editor.getStyledDocument().getParagraphElement(editor.getCaretPosition());
+        return editor.getSelectionStart() == editor.getSelectionEnd() && p.getEndOffset() - p.getStartOffset() <= 1;
     }
 
     public void setDialogs(Dialogs dialogs) {
@@ -161,7 +244,8 @@ public final class EditorActions {
     public void attach(StyledDocument document) {
         undo.discardAllEdits();
         document.addUndoableEditListener(e -> {
-            undo.addEdit(e.getEdit());
+            if (group != null) group.addEdit(e.getEdit());
+            else undo.addEdit(e.getEdit());
             updateUndo();
         });
         update();
@@ -178,6 +262,12 @@ public final class EditorActions {
         alignCenter.putValue(Action.SELECTED_KEY, state.alignment() == StyleConstants.ALIGN_CENTER);
         alignRight.putValue(Action.SELECTED_KEY, state.alignment() == StyleConstants.ALIGN_RIGHT);
         alignJustify.putValue(Action.SELECTED_KEY, state.alignment() == StyleConstants.ALIGN_JUSTIFIED);
+        Optional<ListFormat> list = formatting.listFormat();
+        bullets.putValue(Action.SELECTED_KEY, list.map(ListFormat::isBullet).orElse(false));
+        numbering.putValue(Action.SELECTED_KEY, list.map(f -> !f.isBullet()).orElse(false));
+        for (Action listOnly : new Action[]{increaseLevel, decreaseLevel, restartNumbering, continueNumbering}) {
+            listOnly.setEnabled(list.isPresent());
+        }
         boolean selection = editor.getSelectionStart() != editor.getSelectionEnd();
         cut.setEnabled(selection && editor.isEditable());
         copy.setEnabled(selection);
@@ -208,9 +298,27 @@ public final class EditorActions {
         update();
     }
 
-    /** Toolbar buttons do not take the focus, but menu clicks may; the editor gets it back. */
+    /**
+     * Runs a change as one undo step, however many paragraphs or attributes it touches; the editor gets the
+     * focus back (toolbar buttons do not take it, but menu clicks may) and the bars are updated.
+     */
+    public void apply(Runnable change) {
+        edit(change);
+    }
+
     private void edit(Runnable change) {
-        change.run();
+        boolean outermost = group == null;
+        if (outermost) group = new CompoundEdit();
+        try {
+            change.run();
+        } finally {
+            if (outermost) {
+                CompoundEdit done = group;
+                group = null;
+                done.end();
+                if (done.isSignificant()) undo.addEdit(done);
+            }
+        }
         editor.requestFocusInWindow();
         update();
     }

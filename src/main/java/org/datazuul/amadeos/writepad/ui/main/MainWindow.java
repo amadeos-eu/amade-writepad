@@ -129,14 +129,12 @@ public final class MainWindow extends JFrame implements MainView {
         ruler.setListener(new Ruler.Listener() {
             @Override
             public void indentsChanged(TextFormatting.Indents indents) {
-                actions.formatting().setIndents(indents);
-                actions.update();
+                actions.apply(() -> actions.formatting().setIndents(indents));
             }
 
             @Override
             public void tabsChanged(List<TabStop> tabs) {
-                actions.formatting().setTabs(tabs);
-                actions.update();
+                actions.apply(() -> actions.formatting().setTabs(tabs));
             }
         });
         actions.addUpdateListener(() -> ruler.show(actions.formatting().indents(), actions.formatting().tabs()));

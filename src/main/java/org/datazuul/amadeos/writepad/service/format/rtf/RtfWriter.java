@@ -5,6 +5,9 @@ import org.datazuul.amadeos.writepad.domain.Margins;
 import org.datazuul.amadeos.writepad.domain.Orientation;
 import org.datazuul.amadeos.writepad.domain.Units;
 import org.datazuul.amadeos.writepad.service.format.DocumentContent;
+import org.datazuul.amadeos.writepad.service.list.ListAttributes;
+import org.datazuul.amadeos.writepad.service.list.ListFormat;
+import org.datazuul.amadeos.writepad.service.list.ListNumbering;
 
 import javax.swing.text.AttributeSet;
 import javax.swing.text.BadLocationException;
@@ -21,9 +24,11 @@ import java.nio.charset.Charset;
 import java.nio.charset.CharsetEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Writes a styled document as RTF that WordPad, Word and LibreOffice read: Windows-1252 characters as
@@ -38,6 +43,9 @@ final class RtfWriter {
     private final DocumentSettings settings;
     private final Map<String, Integer> fonts = new LinkedHashMap<>();
     private final Map<Color, Integer> colors = new LinkedHashMap<>();
+    /** Our list ids by order of appearance, numbered from 1 as {@code \ls}, with their levels' styles. */
+    private final Map<Integer, Integer> listNumbers = new LinkedHashMap<>();
+    private final Map<Integer, ListFormat[]> listLevels = new LinkedHashMap<>();
     private final StringBuilder body = new StringBuilder();
     private final CharsetEncoder ansi = ANSI.newEncoder();
 
@@ -75,6 +83,7 @@ final class RtfWriter {
             }
             rtf.append("}\n");
         }
+        if (!listNumbers.isEmpty()) lists(rtf);
         rtf.append("{\\*\\generator amade-writepad;}\n");
         page(rtf);
         rtf.append(body).append("}\n");
@@ -95,6 +104,17 @@ final class RtfWriter {
 
     private void paragraph(Element paragraph) {
         AttributeSet a = paragraph.getAttributes();
+        int list = 0;
+        if (ListAttributes.isListItem(a)) {
+            list = listNumber(a);
+            // The label as text, for programs that do not know lists; those that do skip it.
+            String label = ListNumbering.label(document, paragraph);
+            if (label != null) {
+                body.append("{\\listtext\\pard\\plain ");
+                text(body, label);
+                body.append("\\tab}");
+            }
+        }
         body.append("\\pard");
         switch (StyleConstants.getAlignment(a)) {
             case StyleConstants.ALIGN_CENTER -> body.append("\\qc");
@@ -109,6 +129,7 @@ final class RtfWriter {
         twips("\\sa", StyleConstants.getSpaceBelow(a));
         float lineSpacing = StyleConstants.getLineSpacing(a);
         if (lineSpacing > 0) body.append("\\sl").append(Math.round((1 + lineSpacing) * 240)).append("\\slmult1");
+        if (list != 0) body.append("\\ls").append(list).append("\\ilvl").append(ListAttributes.level(a));
         TabSet tabs = StyleConstants.getTabSet(a);
         if (tabs != null) {
             for (int i = 0; i < tabs.getTabCount(); i++) tab(tabs.getTab(i));
@@ -160,6 +181,55 @@ final class RtfWriter {
                     "\\fmodern";
             default -> "\\fnil";
         };
+    }
+
+    /** The {@code \ls} number of the paragraph's list; remembers the style of each level as first used. */
+    private int listNumber(AttributeSet a) {
+        int id = ListAttributes.list(a);
+        int number = listNumbers.computeIfAbsent(id, k -> listNumbers.size() + 1);
+        ListFormat[] levels = listLevels.computeIfAbsent(id, k -> new ListFormat[ListAttributes.MAX_LEVEL + 1]);
+        int level = ListAttributes.level(a);
+        if (levels[level] == null) levels[level] = ListAttributes.format(a);
+        return number;
+    }
+
+    /**
+     * The list table and the override table: one list per list of the document, its levels in the styles
+     * used (levels not used follow the first one: all bullets, or 1. a. i. for numbering).
+     */
+    private void lists(StringBuilder rtf) {
+        rtf.append("{\\*\\listtable");
+        for (Map.Entry<Integer, Integer> list : listNumbers.entrySet()) {
+            int number = list.getValue();
+            ListFormat[] levels = listLevels.get(list.getKey());
+            ListFormat first = Arrays.stream(levels).filter(Objects::nonNull).findFirst().orElse(ListFormat.BULLET);
+            rtf.append("\n{\\list\\listtemplateid").append(number).append("\\listsimple0");
+            for (int level = 0; level < levels.length; level++) {
+                ListFormat format = levels[level] != null ? levels[level]
+                        : first.isBullet() ? ListFormat.BULLET : ListFormat.numberingFor(level);
+                rtf.append("{\\listlevel\\levelnfc").append(format.rtfCode()).append("\\levelnfcn")
+                        .append(format.rtfCode()).append("\\leveljc0\\leveljcn0\\levelfollow0\\levelstartat1");
+                if (format.isBullet()) {
+                    String bullet = format.label(1, level);
+                    rtf.append("{\\leveltext\\'01");
+                    text(rtf, bullet);
+                    rtf.append(";}{\\levelnumbers;}");
+                } else {
+                    rtf.append("{\\leveltext\\'02\\'").append(String.format("%02x", level)).append(".;}")
+                            .append("{\\levelnumbers\\'01;}");
+                }
+                int indent = Units.pointsToTwips(ListAttributes.leftIndent(level));
+                rtf.append("\\fi-").append(Units.pointsToTwips(ListAttributes.STEP)).append("\\li").append(indent)
+                        .append("\\lin").append(indent).append('}');
+            }
+            rtf.append("{\\listname ;}\\listid").append(number).append('}');
+        }
+        rtf.append("}\n{\\*\\listoverridetable");
+        for (int number : listNumbers.values()) {
+            rtf.append("{\\listoverride\\listid").append(number).append("\\listoverridecount0\\ls").append(number)
+                    .append('}');
+        }
+        rtf.append("}\n");
     }
 
     private void tab(TabStop tab) {

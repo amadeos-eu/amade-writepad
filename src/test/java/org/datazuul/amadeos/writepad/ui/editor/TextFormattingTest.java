@@ -5,12 +5,18 @@ import org.datazuul.amadeos.writepad.domain.DocumentSettings;
 import org.datazuul.amadeos.writepad.service.layout.PageLayout;
 import org.junit.jupiter.api.Test;
 
+import org.datazuul.amadeos.writepad.service.list.ListFormat;
+import org.datazuul.amadeos.writepad.service.list.ListNumbering;
+
+import javax.swing.text.AttributeSet;
 import javax.swing.text.BadLocationException;
+import javax.swing.text.Element;
 import javax.swing.text.StyleConstants;
 import javax.swing.text.StyledDocument;
 import javax.swing.text.TabStop;
 import java.awt.Color;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -108,6 +114,107 @@ class TextFormattingTest {
             editor.setCaretPosition(10);
             assertEquals(new TextFormatting.Indents(0, 0, 0), formatting.indents(), "third paragraph unchanged");
             assertEquals(List.of(), formatting.tabs());
+        });
+    }
+
+    private String labels() {
+        StringBuilder s = new StringBuilder();
+        Element root = doc().getDefaultRootElement();
+        for (int i = 0; i < root.getElementCount(); i++) {
+            String label = ListNumbering.label(doc(), root.getElement(i));
+            if (i > 0) s.append(' ');
+            s.append(label == null ? "-" : label);
+        }
+        return s.toString();
+    }
+
+    private void select(String from, String to) {
+        String text;
+        try {
+            text = doc().getText(0, doc().getLength());
+        } catch (BadLocationException e) {
+            throw new AssertionError(e);
+        }
+        editor.select(text.indexOf(from), text.indexOf(to) + to.length());
+    }
+
+    @Test
+    void bulletsAndNumberingToggleOnTheSelection() throws Exception {
+        withText("a\nb\nc\nd", () -> {
+            select("b", "c");
+            formatting.toggleBullets();
+            assertEquals("- • • -", labels());
+            AttributeSet b = doc().getParagraphElement(2).getAttributes();
+            assertEquals(18f, StyleConstants.getLeftIndent(b));
+            assertEquals(-18f, StyleConstants.getFirstLineIndent(b));
+            assertEquals(Optional.of(ListFormat.BULLET), formatting.listFormat());
+            formatting.toggleNumbering();
+            assertEquals("- 1. 2. -", labels(), "bullets become numbers");
+            formatting.toggleNumbering();
+            assertEquals("- - - -", labels(), "all numbered: numbering off");
+            assertEquals(0f, StyleConstants.getLeftIndent(doc().getParagraphElement(2).getAttributes()));
+        });
+    }
+
+    @Test
+    void newItemsJoinTheListNextToThem() throws Exception {
+        withText("a\nb\nc", () -> {
+            select("a", "b");
+            formatting.toggleNumbering();
+            select("c", "c");
+            formatting.toggleNumbering();
+            assertEquals("1. 2. 3.", labels());
+            editor.setCaretPosition(4);
+            formatting.toggleBullets();
+            assertEquals("1. 2. •", labels(), "a bullet does not join a numbered list");
+        });
+    }
+
+    @Test
+    void levelsIndentAndChangeTheNumberingStyle() throws Exception {
+        withText("a\nb\nc", () -> {
+            select("a", "c");
+            formatting.toggleNumbering();
+            select("b", "b");
+            assertTrue(formatting.changeLevel(1));
+            assertEquals("1. a. 2.", labels());
+            assertEquals(36f, StyleConstants.getLeftIndent(doc().getParagraphElement(2).getAttributes()));
+            formatting.changeLevel(-5);
+            assertEquals("1. 2. 3.", labels());
+            editor.setCaretPosition(0);
+            formatting.endListAtCaret(false);
+            assertFalse(formatting.changeLevel(1), "not a list item");
+        });
+    }
+
+    @Test
+    void restartAndContinueNumbering() throws Exception {
+        withText("a\nb\nc\nd", () -> {
+            select("a", "d");
+            formatting.toggleNumbering();
+            editor.setCaretPosition(4);
+            assertTrue(formatting.restartNumbering());
+            assertEquals("1. 2. 1. 2.", labels());
+            assertTrue(formatting.continueNumbering());
+            assertEquals("1. 2. 3. 4.", labels());
+            assertFalse(formatting.continueNumbering(), "no list before");
+        });
+    }
+
+    @Test
+    void endingAListKeepsOrResetsTheIndent() throws Exception {
+        withText("a\nb", () -> {
+            select("a", "b");
+            formatting.toggleBullets();
+            editor.setCaretPosition(0);
+            formatting.endListAtCaret(true);
+            AttributeSet a = doc().getParagraphElement(0).getAttributes();
+            assertEquals("- •", labels());
+            assertEquals(18f, StyleConstants.getLeftIndent(a), "Backspace keeps the text where it is");
+            assertEquals(0f, StyleConstants.getFirstLineIndent(a));
+            editor.setCaretPosition(2);
+            formatting.endListAtCaret(false);
+            assertEquals(0f, StyleConstants.getLeftIndent(doc().getParagraphElement(2).getAttributes()));
         });
     }
 

@@ -6,6 +6,7 @@ import org.datazuul.amadeos.commons.i18n.Messages;
 import org.datazuul.amadeos.writepad.bootstrap.WritepadModule;
 import org.datazuul.amadeos.writepad.domain.DocumentSettings;
 import org.datazuul.amadeos.writepad.service.layout.PageLayout;
+import org.datazuul.amadeos.writepad.service.list.ListNumbering;
 import org.datazuul.amadeos.writepad.ui.dialog.ParagraphDialog;
 import org.datazuul.amadeos.writepad.ui.editor.PageEditor;
 import org.datazuul.amadeos.writepad.ui.editor.TextFormatting;
@@ -13,13 +14,18 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import javax.swing.Action;
+import javax.swing.JComponent;
+import javax.swing.KeyStroke;
 import javax.swing.JToggleButton;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultStyledDocument;
+import javax.swing.text.Element;
 import javax.swing.text.StyleConstants;
 import javax.swing.text.TabStop;
 import java.awt.Color;
 import java.awt.event.ActionEvent;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
@@ -170,11 +176,83 @@ class EditorActionsTest {
         });
     }
 
+    private void key(int code, int modifiers) {
+        KeyStroke stroke = KeyStroke.getKeyStroke(code, modifiers);
+        Object name = editor.getInputMap(JComponent.WHEN_FOCUSED).get(stroke);
+        Action action = editor.getActionMap().get(name);
+        action.actionPerformed(new ActionEvent(editor, ActionEvent.ACTION_PERFORMED, ""));
+    }
+
+    private String text() {
+        try {
+            return editor.getDocument().getText(0, editor.getDocument().getLength());
+        } catch (BadLocationException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    private String labels() {
+        StringBuilder s = new StringBuilder();
+        Element root = editor.getStyledDocument().getDefaultRootElement();
+        for (int i = 0; i < root.getElementCount(); i++) {
+            String label = ListNumbering.label(editor.getStyledDocument(), root.getElement(i));
+            if (i > 0) s.append(' ');
+            s.append(label == null ? "-" : label);
+        }
+        return s.toString();
+    }
+
     @Test
-    void listsWaitForTheRulerButFilesWork() throws Exception {
+    void listButtonsShowTheParagraphAndUndoInOneStep() throws Exception {
+        withEditor("a\nb\nc", () -> {
+            editor.select(0, 5);
+            perform(actions.numbering);
+            assertEquals("1. 2. 3.", labels());
+            assertTrue(selected(actions.numbering));
+            assertFalse(selected(actions.bullets));
+            assertTrue(actions.increaseLevel.isEnabled());
+            perform(actions.undoAction);
+            assertEquals("- - -", labels(), "three paragraphs, one undo step");
+            actions.update();
+            assertFalse(selected(actions.numbering));
+            assertFalse(actions.restartNumbering.isEnabled());
+        });
+    }
+
+    @Test
+    void tabShiftTabEnterAndBackspaceInLists() throws Exception {
+        withEditor("one\ntwo", () -> {
+            editor.select(0, 7);
+            perform(actions.bullets);
+            editor.setCaretPosition(4);
+            key(KeyEvent.VK_TAB, 0);
+            assertEquals("• ◦", labels(), "Tab at the start of an item: one level deeper");
+            assertEquals("one\ntwo", text());
+            editor.setCaretPosition(5);
+            key(KeyEvent.VK_TAB, 0);
+            assertEquals("one\nt\two", text(), "Tab inside the text inserts a tab");
+            key(KeyEvent.VK_TAB, InputEvent.SHIFT_DOWN_MASK);
+            assertEquals("• •", labels());
+            editor.setCaretPosition(editor.getDocument().getLength());
+            key(KeyEvent.VK_ENTER, 0);
+            assertEquals("• • •", labels(), "Enter in an item: a new item");
+            key(KeyEvent.VK_ENTER, 0);
+            assertEquals("• • -", labels(), "Enter on an empty item: the list ends");
+            assertEquals(3, editor.getStyledDocument().getDefaultRootElement().getElementCount());
+            editor.setCaretPosition(4);
+            key(KeyEvent.VK_BACK_SPACE, 0);
+            assertEquals("• - -", labels(), "Backspace at the start: no longer an item");
+            key(KeyEvent.VK_BACK_SPACE, 0);
+            assertEquals("•", labels().substring(0, 1));
+            assertEquals("onet\two\n", text(), "then Backspace deletes as usual");
+        });
+    }
+
+    @Test
+    void filesWork() throws Exception {
         withEditor("", () -> {
-            assertFalse(actions.bullets.isEnabled());
-            assertFalse(actions.numbering.isEnabled());
+            assertTrue(actions.bullets.isEnabled());
+            assertTrue(actions.numbering.isEnabled());
             assertTrue(actions.open.isEnabled());
             assertTrue(actions.save.isEnabled());
             assertTrue(actions.saveAs.isEnabled());
