@@ -13,6 +13,27 @@
 - Five languages (English, Deutsch, Français, Español, Italiano), following the amadeOS desktop language
 - Java 21, Swing, Guice and [amade-commons](https://github.com/datazuul/amade-commons); Debian package
 
+## Status
+
+Step 1 of the plan, the page-view spike: styled text laid out on real pages (A5, A4, Letter, Legal, portrait or landscape, margins), zoom from 50 % to 300 %, and printing through the same views, so lines and page breaks on paper match the screen. *Insert → Sample Text* fills a few pages to try it. Files cannot be opened or saved yet.
+
+## Architecture
+
+Java 21, Swing and Guice; theme, Motif look, language and start-up come from [amade-commons](https://github.com/datazuul/amade-commons).
+
+- `domain`: `PaperSize`, `Orientation`, `Margins`, `DocumentSettings` (all lengths in points, 1/72 inch).
+- `service.layout`: the paged view. `PagedEditorKit` replaces the section and paragraph views of Swing's `StyledEditorKit`. `PagedParagraphView` moves every line that would cross the bottom margin to the top of the next page; `PagedSectionView` stacks the paragraphs, paints the sheets and applies the zoom, so that everything inside the views stays in points. `PageLayout` holds the page geometry and the zoom.
+- `service.print`: `DocumentPageable` paints each page with the same views, unscaled; `PrintService` asks for the paper through the print dialog.
+- `ui`: `PageEditor` (the `JTextPane` on the dark desk), `MainWindow`, `MainMenuBar`, `MainPresenter`, `PageSetupDialog`.
+
+## Build and run
+
+```sh
+./gradlew run --args=--sample      # with sample text
+./gradlew test                     # Swing tests need a display: xvfb-run ./gradlew test
+./gradlew deb                      # build/distributions/amade-writepad_<version>_all.deb
+```
+
 ## Licence
 
 EUPL-1.2, see [LICENSE](LICENSE).

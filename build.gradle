@@ -1,0 +1,174 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'org.datazuul.amadeos'
+version = '0.1.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+application {
+    mainClass = 'org.datazuul.amadeos.writepad.bootstrap.AmadeWritepadApplication'
+}
+
+repositories {
+    mavenCentral()
+    maven { url 'https://jitpack.io' }
+}
+
+dependencies {
+    // Theme, Motif look, start-up and XDG helpers shared by all amadeOS applications.
+    // With ../amade-commons checked out, settings.gradle builds that checkout instead (composite build).
+    implementation 'com.github.datazuul:amade-commons:368124c665'
+    runtimeOnly 'ch.qos.logback:logback-classic:1.5.18'
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+    // Tests compare English texts, whatever the language of the build machine.
+    systemProperty 'user.language', 'en'
+    systemProperty 'user.country', 'US'
+}
+
+jar {
+    archiveBaseName = 'amade-writepad'
+    manifest {
+        attributes(
+            'Main-Class': 'org.datazuul.amadeos.writepad.bootstrap.AmadeWritepadApplication',
+            'Implementation-Title': 'amade-writepad',
+            'Implementation-Version': project.version
+        )
+    }
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+tasks.register('deb') {
+    dependsOn jar
+    description = 'Builds a standard Debian (.deb) package for amade-writepad'
+    group = 'distribution'
+
+    doLast {
+        def buildDirFile = layout.buildDirectory.get().asFile
+        def stagingDir = new File(buildDirFile, "deb-staging")
+        delete(stagingDir)
+        
+        def optDir = new File(stagingDir, "opt/amade-writepad")
+        def binDir = new File(stagingDir, "usr/bin")
+        def appDir = new File(stagingDir, "usr/share/applications")
+        def iconDir = new File(stagingDir, "usr/share/icons/hicolor/48x48/apps")
+        def debianDir = new File(stagingDir, "DEBIAN")
+        def distDir = new File(buildDirFile, "distributions")
+
+        optDir.mkdirs()
+        binDir.mkdirs()
+        appDir.mkdirs()
+        iconDir.mkdirs()
+        debianDir.mkdirs()
+        distDir.mkdirs()
+
+        // 1. Copy application JAR
+        copy {
+            from jar.archiveFile
+            into optDir
+            rename { 'amade-writepad.jar' }
+        }
+
+        // 2. Create launcher script
+        def launcher = new File(binDir, "amade-writepad")
+        launcher.text = """#!/bin/sh
+exec /usr/bin/java -jar /opt/amade-writepad/amade-writepad.jar "\$@"
+"""
+        launcher.setExecutable(true, false)
+
+        // 3. Create desktop entry
+        def desktopFile = new File(appDir, "amade-writepad.desktop")
+        desktopFile.text = """[Desktop Entry]
+Type=Application
+Version=1.0
+Name=amadeOS Writepad
+GenericName=Word Processor
+Comment=Write, lay out and print formatted documents
+Icon=amade-writepad
+Exec=/usr/bin/amade-writepad %F
+Terminal=false
+Categories=Office;WordProcessor;
+MimeType=application/vnd.oasis.opendocument.text;application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/msword;application/rtf;text/rtf;text/plain;
+StartupNotify=true
+"""
+
+        // 4. Generate/copy application icon
+        def iconSource = file("src/main/resources/icons/amade-writepad.png")
+        if (iconSource.exists()) {
+            copy {
+                from iconSource
+                into iconDir
+            }
+        }
+
+        // 5. Licence text, as Debian expects it in /usr/share/doc/<package>/copyright
+        copy {
+            from 'LICENSE'
+            into new File(stagingDir, "usr/share/doc/amade-writepad")
+            rename { 'copyright' }
+        }
+
+        // 6. Create Debian package control file
+        def controlFile = new File(debianDir, "control")
+        controlFile.text = """Package: amade-writepad
+Version: ${project.version}
+Section: text
+Priority: optional
+Architecture: all
+Depends: default-jre | openjdk-21-jre | java21-runtime
+Maintainer: amadeOS Project <developers@datazuul.com>
+Description: Document editor for amadeOS in the style of WordPad
+ Writes formatted documents on real pages (A5, A4, Letter, Legal,
+ portrait or landscape) and prints them as shown. Part of the amadeOS
+ desktop.
+"""
+
+        // 7. Build .deb package using dpkg-deb
+        def debFile = new File(distDir, "amade-writepad_${project.version}_all.deb")
+        def process = new ProcessBuilder("dpkg-deb", "--root-owner-group", "--build", stagingDir.absolutePath, debFile.absolutePath)
+                .redirectErrorStream(true)
+                .start()
+        process.inputStream.eachLine { println it }
+        int exitCode = process.waitFor()
+        if (exitCode != 0) {
+            throw new GradleException("dpkg-deb failed with exit code $exitCode")
+        }
+
+        println "[deb] Successfully created Debian package: ${debFile.absolutePath}"
+    }
+}
+
+tasks.register('installToAmadeOs') {
+    dependsOn 'deb'
+    description = 'Builds and drops the .deb package into amadeos/config/packages.chroot/'
+    group = 'distribution'
+
+    doLast {
+        def targetDir = file("../amadeos/config/packages.chroot")
+        if (!targetDir.exists()) {
+            targetDir.mkdirs()
+        }
+        def buildDirFile = layout.buildDirectory.get().asFile
+        def debFile = new File(buildDirFile, "distributions/amade-writepad_${project.version}_all.deb")
+        copy {
+            from debFile
+            into targetDir
+        }
+        println "[installToAmadeOs] Copied ${debFile.name} to ${targetDir.absolutePath}"
+    }
+}
