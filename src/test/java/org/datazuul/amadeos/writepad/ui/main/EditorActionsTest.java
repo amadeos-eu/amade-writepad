@@ -5,6 +5,7 @@ import org.datazuul.amadeos.writepad.QueueExecutor;
 import org.datazuul.amadeos.commons.i18n.Messages;
 import org.datazuul.amadeos.writepad.bootstrap.WritepadModule;
 import org.datazuul.amadeos.writepad.domain.DocumentSettings;
+import org.datazuul.amadeos.writepad.service.format.WritepadDocument;
 import org.datazuul.amadeos.writepad.service.layout.PageLayout;
 import org.datazuul.amadeos.writepad.service.list.ListNumbering;
 import org.datazuul.amadeos.writepad.ui.dialog.ParagraphDialog;
@@ -48,7 +49,7 @@ class EditorActionsTest {
             MainPresenter presenter = TestPresenters.create(null, new PageLayout(DocumentSettings.DEFAULT, 1), config,
                     new QueueExecutor());
             actions = new EditorActions(editor, presenter, msg);
-            DefaultStyledDocument doc = new DefaultStyledDocument();
+            DefaultStyledDocument doc = new WritepadDocument();
             editor.setStyledDocument(doc);
             actions.attach(doc);
             try {
@@ -245,6 +246,47 @@ class EditorActionsTest {
             key(KeyEvent.VK_BACK_SPACE, 0);
             assertEquals("•", labels().substring(0, 1));
             assertEquals("onet\two\n", text(), "then Backspace deletes as usual");
+        });
+    }
+
+    /** Shift+Enter: a new line in the same paragraph or list item, one undo step; typing goes on as text. */
+    @Test
+    void shiftEnterBreaksTheLine() throws Exception {
+        withEditor("one two\nthree", () -> {
+            editor.select(0, 13);
+            perform(actions.bullets);
+            editor.select(3, 4);
+            key(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK);
+            assertEquals("one\u2028two\nthree", text(), "the space is replaced by the break");
+            assertEquals("• •", labels(), "still two items: no new label");
+            assertEquals(4, editor.getCaretPosition());
+            Element brk = editor.getStyledDocument().getCharacterElement(3);
+            assertTrue(WritepadDocument.isLineBreak(brk.getAttributes()));
+            assertEquals(4, brk.getEndOffset(), "the break is an element of its own");
+            editor.replaceSelection("x");
+            assertFalse(WritepadDocument.isLineBreak(editor.getStyledDocument().getCharacterElement(4)
+                    .getAttributes()), "text typed after the break is no break");
+            assertEquals("one\u2028xtwo\nthree", text());
+            perform(actions.undoAction);
+            perform(actions.undoAction);
+            assertEquals("one two\nthree", text(), "selection and break come back in one step");
+        });
+    }
+
+    @Test
+    void pastedLineSeparatorsBecomeBreaks() throws Exception {
+        withEditor("", () -> {
+            editor.replaceSelection("a\u2028b\u2028\u2028c");
+            int breaks = 0;
+            for (int i = 0; i < editor.getDocument().getLength(); i++) {
+                boolean isBreak = WritepadDocument.isLineBreak(editor.getStyledDocument().getCharacterElement(i)
+                        .getAttributes());
+                assertEquals(text().charAt(i) == WritepadDocument.LINE_BREAK, isBreak, "at " + i);
+                if (isBreak) breaks++;
+            }
+            assertEquals(3, breaks);
+            assertEquals(1, editor.getStyledDocument().getDefaultRootElement().getElementCount(),
+                    "still one paragraph");
         });
     }
 

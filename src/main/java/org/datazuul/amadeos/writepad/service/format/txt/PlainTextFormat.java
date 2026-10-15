@@ -4,6 +4,7 @@ import org.datazuul.amadeos.writepad.domain.DocumentSettings;
 import org.datazuul.amadeos.writepad.service.format.DocumentContent;
 import org.datazuul.amadeos.writepad.service.format.DocumentFormat;
 import org.datazuul.amadeos.writepad.service.format.Documents;
+import org.datazuul.amadeos.writepad.service.format.WritepadDocument;
 
 import javax.swing.text.BadLocationException;
 import javax.swing.text.StyledDocument;
@@ -59,7 +60,9 @@ public final class PlainTextFormat implements DocumentFormat {
     public byte[] write(DocumentContent content) throws IOException {
         StyledDocument document = content.document();
         try {
-            return document.getText(0, document.getLength()).getBytes(StandardCharsets.UTF_8);
+            // A line break within a paragraph is a line end in plain text, too.
+            return document.getText(0, document.getLength()).replace(WritepadDocument.LINE_BREAK, '\n')
+                    .getBytes(StandardCharsets.UTF_8);
         } catch (BadLocationException e) {
             throw new IllegalStateException(e);
         }

@@ -1,5 +1,6 @@
 package org.datazuul.amadeos.writepad.ui.main;
 
+import org.datazuul.amadeos.writepad.service.format.WritepadDocument;
 import org.datazuul.amadeos.commons.i18n.Messages;
 import org.datazuul.amadeos.commons.swing.EdtExecutor;
 import org.datazuul.amadeos.writepad.service.list.ListFormat;
@@ -184,6 +185,19 @@ public final class EditorActions {
                     edit(() -> formatting.endListAtCaret(true));
                     return true;
                 });
+        // Shift+Enter: a new line in the same paragraph (or list item, without a new label).
+        keys.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK), "writepad-line-break");
+        actions.put("writepad-line-break", new AbstractAction("writepad-line-break") {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                if (editor.isEditable()) insertLineBreak();
+            }
+        });
+    }
+
+    /** Replaces the selection with a line break, as one undo step. */
+    public void insertLineBreak() {
+        edit(() -> editor.replaceSelection(String.valueOf(WritepadDocument.LINE_BREAK)));
     }
 
     private void listKey(InputMap keys, ActionMap actions, KeyStroke key, String name, Action otherwise,

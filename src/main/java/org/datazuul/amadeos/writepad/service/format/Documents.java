@@ -17,7 +17,7 @@ public final class Documents {
 
     /** An empty document whose base style uses the default font. */
     public static StyledDocument newDocument() {
-        DefaultStyledDocument document = new DefaultStyledDocument();
+        DefaultStyledDocument document = new WritepadDocument();
         Style base = document.getStyle(StyleContext.DEFAULT_STYLE);
         StyleConstants.setFontFamily(base, DEFAULT_FAMILY);
         StyleConstants.setFontSize(base, DEFAULT_SIZE);
