@@ -229,11 +229,24 @@ public final class PagedSectionView extends BoxView {
         return toScreen(shape, allocation);
     }
 
+    /**
+     * The area of a range, which Swing repaints when a selection or highlight changes. View's implementation
+     * would measure both ends with {@link #modelToView(int, Shape, Position.Bias)} above, which already
+     * answers in screen pixels, and so convert twice: wrong wherever the zoom is not 1 (the default zoom
+     * follows the screen's resolution), leaving parts of an old selection on the screen. So this measures in
+     * points: from the first end to the second, whole rows in between, then converts once.
+     */
     @Override
     public Shape modelToView(int p0, Position.Bias b0, int p1, Position.Bias b1, Shape allocation)
             throws BadLocationException {
-        Shape shape = super.modelToView(p0, bias(p0, b0), p1, b1, pointsAllocation());
-        return toScreen(shape, allocation);
+        Rectangle points = pointsAllocation();
+        Rectangle2D start = super.modelToView(p0, points, bias(p0, b0)).getBounds2D();
+        Rectangle2D end = super.modelToView(p1, points, b1).getBounds2D();
+        Rectangle2D range = start.createUnion(end);
+        if (start.getY() != end.getY()) {
+            range.setRect(points.x, range.getY(), points.width, range.getHeight());
+        }
+        return toScreen(range, allocation);
     }
 
     /**

@@ -355,6 +355,88 @@ class PageEditorTest {
         });
     }
 
+    /**
+     * The area Swing repaints when a selection changes (the view's shape of a range) covers every character
+     * of the range at every zoom, so no highlight is left behind on the screen.
+     */
+    @Test
+    void rangeShapeCoversTheWholeSelection() throws Exception {
+        for (double zoom : new double[]{1, 1.25, 1.5, 2}) {
+            withSample(DocumentSettings.DEFAULT, zoom, () -> {
+                // Twice as wide as the pages, so they are centred with space beside them.
+                editor.setSize(editor.getPreferredSize().width * 2, editor.getPreferredSize().height);
+                // From inside the first line of a long paragraph to its end, as when selecting it.
+                javax.swing.text.Element root = editor.getStyledDocument().getDefaultRootElement();
+                javax.swing.text.Element paragraph = root.getElement(0);
+                for (int i = 0; paragraph.getEndOffset() - paragraph.getStartOffset() < 400; i++) {
+                    paragraph = root.getElement(i);
+                }
+                int p0 = paragraph.getStartOffset() + 20;
+                int p1 = paragraph.getEndOffset() - 1;
+                Rectangle range;
+                try {
+                    range = editor.getUI().getRootView(editor).modelToView(p0, Position.Bias.Forward, p1,
+                            Position.Bias.Backward, new Rectangle(0, 0, editor.getWidth(), editor.getHeight()))
+                            .getBounds();
+                } catch (BadLocationException e) {
+                    throw new AssertionError(e);
+                }
+                for (int offset = p0; offset <= p1; offset += 7) {
+                    Rectangle r = view(offset);
+                    assertTrue(range.contains(r.x, r.y + 1) && range.contains(r.x, r.y + r.height - 1),
+                            "zoom " + zoom + ": offset " + offset + " at " + r + " outside " + range);
+                }
+                int right = (int) Math.floor(editor.textColumnX() + layout.contentWidth() * zoom) - 1;
+                assertTrue(range.x <= editor.textColumnX() && range.x + range.width >= right,
+                        "zoom " + zoom + ": whole lines in between: " + range);
+            });
+        }
+    }
+
+    /**
+     * Clicking elsewhere repaints all of the old selection, at every zoom and with the pages centred in a
+     * wider window: nothing of the highlight stays on the screen.
+     */
+    @Test
+    void removedSelectionIsRepaintedCompletely() throws Exception {
+        for (double zoom : new double[]{1, 1.389, 1.5, 2}) {
+            withSample(DocumentSettings.DEFAULT, zoom, () -> {
+                editor.setSize(editor.getPreferredSize().width + 300, editor.getPreferredSize().height);
+                int p0 = 0;
+                int p1 = editor.getStyledDocument().getDefaultRootElement().getElement(3).getEndOffset() - 1;
+                // Shown as with the focus in the editor.
+                editor.getCaret().setSelectionVisible(true);
+                editor.select(p0, p1);
+                // Swing remembers where it painted the selection, so paint it first.
+                BufferedImage image = new BufferedImage(editor.getWidth(), Math.min(editor.getHeight(), 1200),
+                        BufferedImage.TYPE_INT_RGB);
+                Graphics2D g = image.createGraphics();
+                editor.paint(g);
+                g.dispose();
+                java.util.List<Rectangle> dirty = new java.util.ArrayList<>();
+                javax.swing.RepaintManager previous = javax.swing.RepaintManager.currentManager(editor);
+                javax.swing.RepaintManager.setCurrentManager(new javax.swing.RepaintManager() {
+                    @Override
+                    public void addDirtyRegion(javax.swing.JComponent c, int x, int y, int w, int h) {
+                        if (c == editor) dirty.add(new Rectangle(x, y, w, h));
+                    }
+                });
+                try {
+                    editor.setCaretPosition(editor.getDocument().getLength() - 5);
+                } finally {
+                    javax.swing.RepaintManager.setCurrentManager(previous);
+                }
+                for (int offset = p0; offset < p1; offset += 3) {
+                    Rectangle r = view(offset);
+                    int x = r.x + 1;
+                    int y = r.y + r.height / 2;
+                    assertTrue(dirty.stream().anyMatch(d -> d.contains(x, y)),
+                            "zoom " + zoom + ": offset " + offset + " at " + r + " not repainted: " + dirty);
+                }
+            });
+        }
+    }
+
     @Test
     void pagesAreCentredInAWiderWindow() throws Exception {
         withSample(DocumentSettings.DEFAULT, 1, () -> {
