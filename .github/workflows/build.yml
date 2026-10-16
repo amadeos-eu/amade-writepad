@@ -16,7 +16,7 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
       - uses: gradle/actions/setup-gradle@v6
         with:
           # Plain actions/cache instead of the proprietary enhanced cache that is the v6 default.
@@ -66,11 +66,11 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
       - uses: gradle/actions/setup-gradle@v6
         with:
           cache-provider: basic
-      # jpackage needs WiX Toolset 3 for MSI (JDK 21 does not support WiX 4/5).
+      # jpackage needs the WiX Toolset for MSI; CI installs WiX 3 (JDK 25 also takes WiX 4/5).
       - name: Install WiX Toolset 3
         shell: pwsh
         run: |
