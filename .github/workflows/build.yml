@@ -37,7 +37,7 @@ jobs:
         run: |
           jar=$(ls build/libs/amade-writepad-*.jar)
           unzip -l "$jar" icons/amade-writepad.png
-          unzip -p "$jar" META-INF/MANIFEST.MF | grep -q 'Main-Class: eu.amadeos.writepad'
+          unzip -p "$jar" META-INF/MANIFEST.MF | grep -q 'Main-Class: eu.amadeos.apps.writepad'
           deb=$(ls build/distributions/amade-writepad_*_all.deb)
           dpkg-deb --info "$deb"
           dpkg-deb --contents "$deb" > contents.txt

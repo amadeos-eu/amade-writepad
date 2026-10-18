@@ -13,7 +13,7 @@ java {
 }
 
 application {
-    mainClass = 'eu.amadeos.writepad.bootstrap.AmadeWritepadApplication'
+    mainClass = 'eu.amadeos.apps.writepad.bootstrap.AmadeWritepadApplication'
 }
 
 repositories {
@@ -42,7 +42,7 @@ jar {
     archiveBaseName = 'amade-writepad'
     manifest {
         attributes(
-            'Main-Class': 'eu.amadeos.writepad.bootstrap.AmadeWritepadApplication',
+            'Main-Class': 'eu.amadeos.apps.writepad.bootstrap.AmadeWritepadApplication',
             'Implementation-Title': 'amade-writepad',
             'Implementation-Version': project.version
         )
