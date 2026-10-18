@@ -3,7 +3,7 @@ plugins {
     id 'application'
 }
 
-group = 'org.datazuul.amadeos'
+group = 'eu.amadeos'
 version = '0.1.0'
 
 java {
@@ -13,7 +13,7 @@ java {
 }
 
 application {
-    mainClass = 'org.datazuul.amadeos.writepad.bootstrap.AmadeWritepadApplication'
+    mainClass = 'eu.amadeos.apps.writepad.bootstrap.AmadeWritepadApplication'
 }
 
 repositories {
@@ -24,7 +24,7 @@ repositories {
 dependencies {
     // Theme, Motif look, start-up and XDG helpers shared by all amadeOS applications.
     // With ../amade-commons checked out, settings.gradle builds that checkout instead (composite build).
-    implementation 'com.github.datazuul:amade-commons:391b2c9900'
+    implementation 'com.github.datazuul:amade-commons:78466adc6e'
     runtimeOnly 'ch.qos.logback:logback-classic:1.5.18'
     testImplementation platform('org.junit:junit-bom:5.10.2')
     testImplementation 'org.junit.jupiter:junit-jupiter'
@@ -42,7 +42,7 @@ jar {
     archiveBaseName = 'amade-writepad'
     manifest {
         attributes(
-            'Main-Class': 'org.datazuul.amadeos.writepad.bootstrap.AmadeWritepadApplication',
+            'Main-Class': 'eu.amadeos.apps.writepad.bootstrap.AmadeWritepadApplication',
             'Implementation-Title': 'amade-writepad',
             'Implementation-Version': project.version
         )
