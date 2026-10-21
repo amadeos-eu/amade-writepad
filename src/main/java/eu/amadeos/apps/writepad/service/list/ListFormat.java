@@ -2,7 +2,7 @@ package eu.amadeos.apps.writepad.service.list;
 
 /**
  * How a list item is marked: a bullet, or a number in one of the usual styles. RTF stores the style as
- * {@code \levelnfc}, ODT as {@code style:num-format}.
+ * {@code \levelnfc}, ODT as {@code style:num-format}, DOCX as {@code w:numFmt}.
  */
 public enum ListFormat {
     BULLET(23, ""),
@@ -50,6 +50,26 @@ public enum ListFormat {
     public static ListFormat ofOdf(String code) {
         for (ListFormat format : values()) {
             if (!format.isBullet() && format.odfCode.equals(code)) return format;
+        }
+        return DECIMAL;
+    }
+
+    /** {@code w:numFmt} of DOCX. */
+    public String docxCode() {
+        return switch (this) {
+            case BULLET -> "bullet";
+            case DECIMAL -> "decimal";
+            case LOWER_LETTER -> "lowerLetter";
+            case UPPER_LETTER -> "upperLetter";
+            case LOWER_ROMAN -> "lowerRoman";
+            case UPPER_ROMAN -> "upperRoman";
+        };
+    }
+
+    /** The format for a DOCX {@code w:numFmt}; other numbering styles count as decimal. */
+    public static ListFormat ofDocx(String code) {
+        for (ListFormat format : values()) {
+            if (format.docxCode().equals(code)) return format;
         }
         return DECIMAL;
     }

@@ -12,6 +12,7 @@ import eu.amadeos.apps.writepad.repository.WritepadPreferences.Bar;
 import eu.amadeos.apps.writepad.service.DocumentService;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.DocumentFormat;
+import eu.amadeos.apps.writepad.service.format.LibreOffice;
 import eu.amadeos.apps.writepad.service.format.Documents;
 import eu.amadeos.apps.writepad.service.layout.PageLayout;
 import org.slf4j.Logger;
@@ -205,7 +206,8 @@ public final class MainPresenter {
         Path suggested = file != null ? file
                 : Path.of(System.getProperty("user.home"), msg.get("document.untitled") + "."
                 + documents.formats().defaultFormat().defaultExtension());
-        view.chooseSavePath(suggested, documents.formats().formats(), format).ifPresent(target -> {
+        List<DocumentFormat> writable = documents.formats().formats().stream().filter(DocumentFormat::canWrite).toList();
+        view.chooseSavePath(suggested, writable, format).ifPresent(target -> {
             if (!target.format().keepsFormatting() && !view.confirmLoseFormatting(target.format().name())) return;
             saveTo(target.path(), target.format(), then);
         });
@@ -222,7 +224,7 @@ public final class MainPresenter {
         }
         long writing = revision;
         busy = true;
-        documents.write(path, bytes).whenCompleteAsync((ignored, failure) -> {
+        documents.write(path, target, bytes).whenCompleteAsync((ignored, failure) -> {
             busy = false;
             if (failure != null) {
                 Throwable cause = DocumentService.cause(failure);
@@ -239,7 +241,8 @@ public final class MainPresenter {
         }, ui);
     }
 
-    private static String message(Throwable t) {
+    private String message(Throwable t) {
+        if (t instanceof LibreOffice.MissingException) return msg.get("error.needs-libreoffice");
         if (t instanceof NoSuchFileException e) return e.getFile();
         if (t instanceof AccessDeniedException e) return e.getFile();
         return t.getMessage() == null ? t.toString() : t.getMessage();

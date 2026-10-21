@@ -60,11 +60,19 @@ public class DocumentService {
      * file.
      */
     public CompletableFuture<Void> write(Path path, byte[] bytes) {
+        return write(path, null, bytes);
+    }
+
+    /**
+     * Writes what a format produced to the file, after the format {@linkplain DocumentFormat#finish finished}
+     * it in the background.
+     */
+    public CompletableFuture<Void> write(Path path, DocumentFormat format, byte[] bytes) {
         Objects.requireNonNull(path, "path");
         Objects.requireNonNull(bytes, "bytes");
         return CompletableFuture.runAsync(() -> {
             try {
-                files.write(path, bytes);
+                files.write(path, format == null ? bytes : format.finish(bytes));
             } catch (IOException e) {
                 throw new CompletionException(e);
             } catch (UncheckedIOException e) {

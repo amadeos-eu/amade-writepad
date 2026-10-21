@@ -4,7 +4,7 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * A file format amade-writepad can open and save: RTF, plain text, later ODT and DOCX.
+ * A file format amade-writepad can open and save: ODT, DOCX, DOC, RTF, plain text.
  *
  * <p>{@link #read} builds a new document that nothing displays yet, so it may run on a background thread.
  * {@link #write} reads a document that may be shown in the editor and must run on the event dispatch thread;
@@ -38,4 +38,17 @@ public interface DocumentFormat {
     DocumentContent read(byte[] bytes) throws IOException;
 
     byte[] write(DocumentContent content) throws IOException;
+
+    /**
+     * Turns what {@link #write} produced into the file's content. It runs on a background thread, so formats
+     * that hand the work to another program (DOC through LibreOffice) do that here; most formats are done.
+     */
+    default byte[] finish(byte[] written) throws IOException {
+        return written;
+    }
+
+    /** False if files cannot be saved in this format here (DOC without LibreOffice). */
+    default boolean canWrite() {
+        return true;
+    }
 }

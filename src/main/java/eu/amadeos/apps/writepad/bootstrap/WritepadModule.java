@@ -12,6 +12,8 @@ import eu.amadeos.apps.writepad.domain.MeasurementUnit;
 import eu.amadeos.apps.writepad.service.DocumentService;
 import eu.amadeos.apps.writepad.service.format.DocumentFormat;
 import eu.amadeos.apps.writepad.service.format.FormatRegistry;
+import eu.amadeos.apps.writepad.service.format.doc.DocFormat;
+import eu.amadeos.apps.writepad.service.format.docx.DocxFormat;
 import eu.amadeos.apps.writepad.service.format.odt.OdtFormat;
 import eu.amadeos.apps.writepad.service.format.rtf.RtfFormat;
 import eu.amadeos.apps.writepad.service.format.txt.PlainTextFormat;
@@ -42,6 +44,8 @@ public final class WritepadModule extends AbstractModule {
         // (ODT) the default for new documents.
         Multibinder<DocumentFormat> formats = Multibinder.newSetBinder(binder(), DocumentFormat.class);
         formats.addBinding().to(OdtFormat.class);
+        formats.addBinding().to(DocxFormat.class);
+        formats.addBinding().to(DocFormat.class);
         formats.addBinding().to(RtfFormat.class);
         formats.addBinding().to(PlainTextFormat.class);
         bind(FormatRegistry.class).in(Scopes.SINGLETON);
