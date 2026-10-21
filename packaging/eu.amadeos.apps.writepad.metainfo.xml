@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata of amade-writepad, installed as /usr/share/metainfo/eu.amadeos.apps.writepad.metainfo.xml.
+     amadeOS Software shows it for the installed package; a repository's appstream-generator reads it too. -->
+<component type="desktop-application">
+  <id>eu.amadeos.apps.writepad</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>EUPL-1.2</project_license>
+
+  <name>amadeOS Writepad</name>
+  <name xml:lang="de">amadeOS Writepad</name>
+  <name xml:lang="fr">amadeOS Writepad</name>
+  <name xml:lang="es">amadeOS Writepad</name>
+  <name xml:lang="it">amadeOS Writepad</name>
+
+  <summary>Write, lay out and print formatted documents</summary>
+  <summary xml:lang="de">Formatierte Dokumente schreiben, gestalten und drucken</summary>
+  <summary xml:lang="fr">Écrire, mettre en page et imprimer des documents mis en forme</summary>
+  <summary xml:lang="es">Escribir, maquetar e imprimir documentos con formato</summary>
+  <summary xml:lang="it">Scrivere, impaginare e stampare documenti formattati</summary>
+
+  <description>
+    <p>amade-writepad is the word processor of the amadeOS desktop, in the spirit of WordPad: formatted text on real pages, ready to print. It opens and saves OpenDocument Text, Word and RTF files.</p>
+    <p xml:lang="de">amade-writepad ist die Textverarbeitung des amadeOS-Desktops, im Geist von WordPad: formatierter Text auf echten Seiten, bereit zum Drucken. Es öffnet und speichert OpenDocument-Text-, Word- und RTF-Dateien.</p>
+    <p xml:lang="fr">amade-writepad est le traitement de texte du bureau amadeOS, dans l'esprit de WordPad : du texte mis en forme sur de vraies pages, prêt à imprimer. Il ouvre et enregistre les fichiers OpenDocument Texte, Word et RTF.</p>
+    <p xml:lang="es">amade-writepad es el procesador de textos del escritorio amadeOS, en el espíritu de WordPad: texto con formato en páginas reales, listo para imprimir. Abre y guarda archivos de texto OpenDocument, Word y RTF.</p>
+    <p xml:lang="it">amade-writepad è l'elaboratore di testi del desktop amadeOS, nello spirito di WordPad: testo formattato su pagine vere, pronto da stampare. Apre e salva file di testo OpenDocument, Word e RTF.</p>
+    <ul>
+      <li>Fonts, sizes, bold, italic, colours and alignment</li>
+      <li xml:lang="de">Schriften, Größen, fett, kursiv, Farben und Ausrichtung</li>
+      <li xml:lang="fr">Polices, tailles, gras, italique, couleurs et alignement</li>
+      <li xml:lang="es">Fuentes, tamaños, negrita, cursiva, colores y alineación</li>
+      <li xml:lang="it">Caratteri, dimensioni, grassetto, corsivo, colori e allineamento</li>
+      <li>Bullet and numbered lists, tab stops and indents on a ruler</li>
+      <li xml:lang="de">Aufzählungen und nummerierte Listen, Tabstopps und Einzüge auf einem Lineal</li>
+      <li xml:lang="fr">Listes à puces et numérotées, taquets de tabulation et retraits sur une règle</li>
+      <li xml:lang="es">Listas con viñetas y numeradas, tabulaciones y sangrías en una regla</li>
+      <li xml:lang="it">Elenchi puntati e numerati, tabulazioni e rientri su un righello</li>
+      <li>A5, A4, Letter and Legal pages, portrait or landscape; what you see is what prints</li>
+      <li xml:lang="de">Seiten in A5, A4, Letter und Legal, hoch oder quer; gedruckt wird, was Sie sehen</li>
+      <li xml:lang="fr">Pages A5, A4, Letter et Legal, portrait ou paysage ; ce que vous voyez est ce qui s'imprime</li>
+      <li xml:lang="es">Páginas A5, A4, Letter y Legal, vertical u horizontal; lo que ve es lo que se imprime</li>
+      <li xml:lang="it">Pagine A5, A4, Letter e Legal, verticale od orizzontale; ciò che vedi è ciò che stampi</li>
+      <li>ODT, DOCX and RTF; DOC through LibreOffice</li>
+      <li xml:lang="de">ODT, DOCX und RTF; DOC über LibreOffice</li>
+      <li xml:lang="fr">ODT, DOCX et RTF ; DOC via LibreOffice</li>
+      <li xml:lang="es">ODT, DOCX y RTF; DOC mediante LibreOffice</li>
+      <li xml:lang="it">ODT, DOCX e RTF; DOC tramite LibreOffice</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">amade-writepad.desktop</launchable>
+  <icon type="stock">amade-writepad</icon>
+  <categories>
+    <category>Office</category>
+    <category>WordProcessor</category>
+  </categories>
+
+  <url type="homepage">https://github.com/datazuul/amade-writepad</url>
+  <url type="bugtracker">https://github.com/datazuul/amade-writepad/issues</url>
+  <developer id="eu.amadeos">
+    <name>amadeOS Project</name>
+  </developer>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>An invitation on an A4 page</caption>
+      <caption xml:lang="de">Eine Einladung auf einer A4-Seite</caption>
+      <caption xml:lang="fr">Une invitation sur une page A4</caption>
+      <caption xml:lang="es">Una invitación en una página A4</caption>
+      <caption xml:lang="it">Un invito su una pagina A4</caption>
+      <image>https://raw.githubusercontent.com/datazuul/amade-writepad/main/docs/screenshots/amade-writepad.png</image>
+    </screenshot>
+  </screenshots>
+
+  <provides>
+    <binary>amade-writepad</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+</component>
