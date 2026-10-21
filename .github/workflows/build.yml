@@ -21,6 +21,11 @@ jobs:
         with:
           # Plain actions/cache instead of the proprietary enhanced cache that is the v6 default.
           cache-provider: basic
+      # The .doc tests convert with LibreOffice and skip themselves without it.
+      - name: Install LibreOffice
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libreoffice-writer-nogui
       # The Swing integration tests skip themselves without a display, so run under Xvfb.
       - name: Test
         run: xvfb-run --auto-servernum ./gradlew test --no-daemon
