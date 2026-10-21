@@ -7,8 +7,11 @@ import eu.amadeos.apps.writepad.service.list.ListFormat;
 import eu.amadeos.apps.writepad.ui.dialog.ParagraphDialog;
 import eu.amadeos.apps.writepad.ui.editor.PageEditor;
 import eu.amadeos.apps.writepad.ui.editor.TextFormatting;
-import eu.amadeos.apps.writepad.ui.icons.ToolIcon;
-import eu.amadeos.apps.writepad.ui.icons.ToolIcon.Glyph;
+import eu.amadeos.apps.writepad.ui.icons.TextColorGlyph;
+import eu.amadeos.apps.writepad.ui.icons.WritepadGlyph;
+import eu.amadeos.commons.swing.StandardGlyph;
+import eu.amadeos.commons.swing.ToolIcon;
+import eu.amadeos.commons.swing.ToolIcon.Glyph;
 
 import javax.swing.AbstractAction;
 import javax.swing.Action;
@@ -106,38 +109,38 @@ public final class EditorActions {
         this.formatting = new TextFormatting(editor);
         this.msg = msg;
 
-        newDocument = action("menu.file.new", "tip.new", Glyph.NEW, KeyEvent.VK_N, e -> presenter.newDocument());
-        open = action("menu.file.open", "tip.open", Glyph.OPEN, KeyEvent.VK_O, e -> presenter.chooseOpen());
-        save = action("menu.file.save", "tip.save", Glyph.SAVE, KeyEvent.VK_S, e -> presenter.save());
-        saveAs = action("menu.file.save-as", "tip.save-as", Glyph.SAVE, 0, e -> presenter.saveAs());
+        newDocument = action("menu.file.new", "tip.new", StandardGlyph.NEW, KeyEvent.VK_N, e -> presenter.newDocument());
+        open = action("menu.file.open", "tip.open", StandardGlyph.OPEN, KeyEvent.VK_O, e -> presenter.chooseOpen());
+        save = action("menu.file.save", "tip.save", StandardGlyph.SAVE, KeyEvent.VK_S, e -> presenter.save());
+        saveAs = action("menu.file.save-as", "tip.save-as", StandardGlyph.SAVE, 0, e -> presenter.saveAs());
         saveAs.putValue(Action.ACCELERATOR_KEY, KeyStroke.getKeyStroke(KeyEvent.VK_S, CTRL | InputEvent.SHIFT_DOWN_MASK));
-        print = action("menu.file.print", "tip.print", Glyph.PRINT, KeyEvent.VK_P, e -> presenter.print());
-        printPreview = disabled("menu.file.print-preview", "tip.print-preview", Glyph.PREVIEW, 0);
-        undoAction = action("menu.edit.undo", "tip.undo", Glyph.UNDO, KeyEvent.VK_Z, e -> undo());
-        redoAction = action("menu.edit.redo", "tip.redo", Glyph.REDO, KeyEvent.VK_Y, e -> redo());
-        cut = action("menu.edit.cut", "tip.cut", Glyph.CUT, KeyEvent.VK_X, e -> edit(editor::cut));
-        copy = action("menu.edit.copy", "tip.copy", Glyph.COPY, KeyEvent.VK_C, e -> edit(editor::copy));
-        paste = action("menu.edit.paste", "tip.paste", Glyph.PASTE, KeyEvent.VK_V, e -> edit(editor::paste));
-        find = disabled("menu.edit.find", "tip.find", Glyph.FIND, KeyEvent.VK_F);
+        print = action("menu.file.print", "tip.print", StandardGlyph.PRINT, KeyEvent.VK_P, e -> presenter.print());
+        printPreview = disabled("menu.file.print-preview", "tip.print-preview", WritepadGlyph.PREVIEW, 0);
+        undoAction = action("menu.edit.undo", "tip.undo", StandardGlyph.UNDO, KeyEvent.VK_Z, e -> undo());
+        redoAction = action("menu.edit.redo", "tip.redo", StandardGlyph.REDO, KeyEvent.VK_Y, e -> redo());
+        cut = action("menu.edit.cut", "tip.cut", StandardGlyph.CUT, KeyEvent.VK_X, e -> edit(editor::cut));
+        copy = action("menu.edit.copy", "tip.copy", StandardGlyph.COPY, KeyEvent.VK_C, e -> edit(editor::copy));
+        paste = action("menu.edit.paste", "tip.paste", StandardGlyph.PASTE, KeyEvent.VK_V, e -> edit(editor::paste));
+        find = disabled("menu.edit.find", "tip.find", StandardGlyph.FIND, KeyEvent.VK_F);
 
-        bold = toggle("menu.format.bold", "tip.bold", Glyph.BOLD, KeyEvent.VK_B, formatting::toggleBold);
-        italic = toggle("menu.format.italic", "tip.italic", Glyph.ITALIC, KeyEvent.VK_I, formatting::toggleItalic);
-        underline = toggle("menu.format.underline", "tip.underline", Glyph.UNDERLINE, KeyEvent.VK_U,
+        bold = toggle("menu.format.bold", "tip.bold", WritepadGlyph.BOLD, KeyEvent.VK_B, formatting::toggleBold);
+        italic = toggle("menu.format.italic", "tip.italic", WritepadGlyph.ITALIC, KeyEvent.VK_I, formatting::toggleItalic);
+        underline = toggle("menu.format.underline", "tip.underline", WritepadGlyph.UNDERLINE, KeyEvent.VK_U,
                 formatting::toggleUnderline);
-        strikeThrough = toggle("menu.format.strike-through", "tip.strike-through", Glyph.STRIKE_THROUGH, 0,
+        strikeThrough = toggle("menu.format.strike-through", "tip.strike-through", WritepadGlyph.STRIKE_THROUGH, 0,
                 formatting::toggleStrikeThrough);
-        textColor = action("menu.format.text-color", "tip.text-color", Glyph.TEXT_COLOR, 0, e -> chooseColor());
-        textColor.putValue(Action.LARGE_ICON_KEY, new ToolIcon(Glyph.TEXT_COLOR, ToolIcon.SIZE, () -> lastColor));
-        alignLeft = alignment("menu.format.align-left", "tip.align-left", Glyph.ALIGN_LEFT, KeyEvent.VK_L,
+        textColor = action("menu.format.text-color", "tip.text-color", new TextColorGlyph(() -> lastColor), 0,
+                e -> chooseColor());
+        alignLeft = alignment("menu.format.align-left", "tip.align-left", WritepadGlyph.ALIGN_LEFT, KeyEvent.VK_L,
                 StyleConstants.ALIGN_LEFT);
-        alignCenter = alignment("menu.format.align-center", "tip.align-center", Glyph.ALIGN_CENTER, KeyEvent.VK_E,
+        alignCenter = alignment("menu.format.align-center", "tip.align-center", WritepadGlyph.ALIGN_CENTER, KeyEvent.VK_E,
                 StyleConstants.ALIGN_CENTER);
-        alignRight = alignment("menu.format.align-right", "tip.align-right", Glyph.ALIGN_RIGHT, KeyEvent.VK_R,
+        alignRight = alignment("menu.format.align-right", "tip.align-right", WritepadGlyph.ALIGN_RIGHT, KeyEvent.VK_R,
                 StyleConstants.ALIGN_RIGHT);
-        alignJustify = alignment("menu.format.align-justify", "tip.align-justify", Glyph.ALIGN_JUSTIFY,
+        alignJustify = alignment("menu.format.align-justify", "tip.align-justify", WritepadGlyph.ALIGN_JUSTIFY,
                 KeyEvent.VK_J, StyleConstants.ALIGN_JUSTIFIED);
-        bullets = toggle("menu.format.bullets", "tip.bullets", Glyph.BULLETS, 0, formatting::toggleBullets);
-        numbering = toggle("menu.format.numbering", "tip.numbering", Glyph.NUMBERING, 0,
+        bullets = toggle("menu.format.bullets", "tip.bullets", WritepadGlyph.BULLETS, 0, formatting::toggleBullets);
+        numbering = toggle("menu.format.numbering", "tip.numbering", WritepadGlyph.NUMBERING, 0,
                 formatting::toggleNumbering);
         increaseLevel = action("menu.format.increase-level", "tip.increase-level", null, 0,
                 e -> edit(() -> formatting.changeLevel(1)));

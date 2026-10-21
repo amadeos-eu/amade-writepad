@@ -6,7 +6,6 @@ import com.google.inject.Scopes;
 import com.google.inject.Singleton;
 import com.google.inject.multibindings.Multibinder;
 import eu.amadeos.commons.i18n.Messages;
-import eu.amadeos.commons.swing.EdtExecutor;
 import eu.amadeos.apps.writepad.domain.DocumentSettings;
 import eu.amadeos.apps.writepad.domain.MeasurementUnit;
 import eu.amadeos.apps.writepad.service.DocumentService;
@@ -23,10 +22,8 @@ import eu.amadeos.apps.writepad.ui.editor.PageEditor;
 import eu.amadeos.apps.writepad.ui.main.MainView;
 import eu.amadeos.apps.writepad.ui.main.MainWindow;
 import eu.amadeos.apps.writepad.ui.main.ScreenScale;
-import eu.amadeos.apps.writepad.ui.main.Ui;
 
 import java.util.Locale;
-import java.util.concurrent.Executor;
 import java.util.function.DoubleSupplier;
 
 /**
@@ -76,13 +73,6 @@ public final class WritepadModule extends AbstractModule {
     @Singleton
     MeasurementUnit measurementUnit() {
         return MeasurementUnit.fromEnvironment(System.getenv(), Locale.getDefault(Locale.Category.FORMAT));
-    }
-
-    /** Continues on the event dispatch thread after background work. */
-    @Provides
-    @Ui
-    Executor ui(EdtExecutor edt) {
-        return edt;
     }
 
     /** The texts in the language {@code AmadeApplication} chose. */

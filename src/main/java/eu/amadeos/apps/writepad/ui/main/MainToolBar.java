@@ -1,6 +1,7 @@
 package eu.amadeos.apps.writepad.ui.main;
 
 import eu.amadeos.commons.swing.EdtExecutor;
+import eu.amadeos.commons.swing.ToolButtons;
 
 import javax.swing.JToolBar;
 
