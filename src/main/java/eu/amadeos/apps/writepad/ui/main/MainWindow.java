@@ -373,6 +373,16 @@ public final class MainWindow extends JFrame implements MainView {
     private void installDocument(StyledDocument document) {
         editor.setStyledDocument(document);
         actions.attach(document);
+        // Installing the document copies the editor's font and colour into its default style, and Swing
+        // announces that as a change of the whole text later on the event queue. Listening from after that
+        // announcement keeps a file that was just opened from showing as changed.
+        SwingUtilities.invokeLater(() -> {
+            if (editor.getDocument() == document) listenTo(document);
+        });
+        updateStatus();
+    }
+
+    private void listenTo(StyledDocument document) {
         document.addDocumentListener(new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) {
@@ -395,7 +405,6 @@ public final class MainWindow extends JFrame implements MainView {
                 SwingUtilities.invokeLater(MainWindow.this::caretMoved);
             }
         });
-        updateStatus();
     }
 
     /** After caret moves and edits: page number, and the formatting the bars show. */
