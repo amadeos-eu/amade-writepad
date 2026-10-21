@@ -9,6 +9,8 @@ import eu.amadeos.apps.writepad.repository.WritepadPreferences;
 import eu.amadeos.apps.writepad.repository.WritepadPreferences.Bar;
 import eu.amadeos.apps.writepad.service.format.DocumentFormat;
 import eu.amadeos.apps.writepad.service.format.Documents;
+import eu.amadeos.apps.writepad.service.format.odt.OdtFormat;
+import eu.amadeos.apps.writepad.service.format.rtf.RtfFormat;
 import eu.amadeos.apps.writepad.service.layout.PageLayout;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -70,7 +72,7 @@ class MainPresenterTest {
     void newWindowIsAnUntitledCleanDocument() {
         assertEquals("Untitled - amade-writepad", view.title);
         assertFalse(presenter.isModified());
-        assertEquals("rtf", presenter.format().defaultExtension());
+        assertEquals("odt", presenter.format().defaultExtension());
     }
 
     @Test
@@ -111,7 +113,7 @@ class MainPresenterTest {
         executor.runAll();
         assertFalse(presenter.isModified());
         assertEquals("Brief.rtf - amade-writepad", view.title);
-        StyledDocument saved = TestPresenters.formats().defaultFormat().read(Files.readAllBytes(brief)).document();
+        StyledDocument saved = new RtfFormat().read(Files.readAllBytes(brief)).document();
         assertEquals("Hallo Welt!", saved.getText(0, saved.getLength()));
         assertTrue(view.saveTargets.isEmpty(), "a document with a file is saved without asking");
     }
@@ -131,20 +133,20 @@ class MainPresenterTest {
     @Test
     void untitledDocumentsAskWhereToSave() throws Exception {
         type("Neu");
-        Path target = dir.resolve("Neu.rtf");
+        Path target = dir.resolve("Neu.odt");
         view.saveTargets.add(new MainView.SaveTarget(target, TestPresenters.formats().defaultFormat()));
         presenter.save();
         executor.runAll();
-        assertEquals(dir.resolve("Untitled.rtf").getFileName(), view.suggested.getFileName());
-        assertTrue(Files.readString(target, StandardCharsets.US_ASCII).startsWith("{\\rtf1"));
-        assertEquals("Neu.rtf - amade-writepad", view.title);
+        assertEquals(dir.resolve("Untitled.odt").getFileName(), view.suggested.getFileName());
+        assertTrue(new OdtFormat().recognizes(Files.readAllBytes(target)));
+        assertEquals("Neu.odt - amade-writepad", view.title);
     }
 
     @Test
     void savingAsTextWarnsAndSwitchesFormat() throws Exception {
         presenter.open(file("Brief.rtf", RTF));
         executor.runAll();
-        DocumentFormat text = TestPresenters.formats().formats().get(1);
+        DocumentFormat text = TestPresenters.formats().formats().get(2);
         Path txt = dir.resolve("Brief.txt");
 
         view.saveTargets.add(new MainView.SaveTarget(txt, text));

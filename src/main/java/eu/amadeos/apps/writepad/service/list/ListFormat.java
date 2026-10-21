@@ -5,21 +5,23 @@ package eu.amadeos.apps.writepad.service.list;
  * {@code \levelnfc}, ODT as {@code style:num-format}.
  */
 public enum ListFormat {
-    BULLET(23),
-    DECIMAL(0),
-    LOWER_LETTER(4),
-    UPPER_LETTER(3),
-    LOWER_ROMAN(2),
-    UPPER_ROMAN(1);
+    BULLET(23, ""),
+    DECIMAL(0, "1"),
+    LOWER_LETTER(4, "a"),
+    UPPER_LETTER(3, "A"),
+    LOWER_ROMAN(2, "i"),
+    UPPER_ROMAN(1, "I");
 
     /** Bullets of the levels, repeating: •, ◦, ▪. */
     private static final String[] BULLETS = {"•", "◦", "▪"};
     private static final ListFormat[] NUMBERING = {DECIMAL, LOWER_LETTER, LOWER_ROMAN};
 
     private final int rtfCode;
+    private final String odfCode;
 
-    ListFormat(int rtfCode) {
+    ListFormat(int rtfCode, String odfCode) {
         this.rtfCode = rtfCode;
+        this.odfCode = odfCode;
     }
 
     public boolean isBullet() {
@@ -37,6 +39,19 @@ public enum ListFormat {
             if (format.rtfCode == code) return format;
         }
         return code == 255 || code == 23 ? BULLET : DECIMAL;
+    }
+
+    /** {@code style:num-format} of ODF; empty for bullets. */
+    public String odfCode() {
+        return odfCode;
+    }
+
+    /** The numbering style for an ODF {@code style:num-format}; other scripts' numbers count as decimal. */
+    public static ListFormat ofOdf(String code) {
+        for (ListFormat format : values()) {
+            if (!format.isBullet() && format.odfCode.equals(code)) return format;
+        }
+        return DECIMAL;
     }
 
     /** Numbering of new numbered items by level, as in Word: 1., a., i., then again. */

@@ -7,6 +7,7 @@ import eu.amadeos.apps.writepad.repository.DocumentFiles;
 import eu.amadeos.apps.writepad.repository.WritepadPreferences;
 import eu.amadeos.apps.writepad.service.DocumentService;
 import eu.amadeos.apps.writepad.service.format.FormatRegistry;
+import eu.amadeos.apps.writepad.service.format.odt.OdtFormat;
 import eu.amadeos.apps.writepad.service.format.rtf.RtfFormat;
 import eu.amadeos.apps.writepad.service.format.txt.PlainTextFormat;
 import eu.amadeos.apps.writepad.service.layout.PageLayout;
@@ -23,7 +24,7 @@ final class TestPresenters {
     }
 
     static FormatRegistry formats() {
-        return new FormatRegistry(List.of(new RtfFormat(), new PlainTextFormat()));
+        return new FormatRegistry(List.of(new OdtFormat(), new RtfFormat(), new PlainTextFormat()));
     }
 
     static MainPresenter create(MainView view, PageLayout layout, Path config, QueueExecutor executor) {
