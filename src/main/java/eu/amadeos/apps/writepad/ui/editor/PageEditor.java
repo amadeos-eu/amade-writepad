@@ -43,6 +43,7 @@ public final class PageEditor extends JTextPane {
         this.layout = Objects.requireNonNull(layout, "layout");
         setEditorKit(new PagedEditorKit(layout));
         setHighlighter(new PagedHighlighter());
+        setTransferHandler(new EditorTransferHandler());
         setMargin(new Insets(0, 0, 0, 0));
         AmadeUI.style(this, (editor, theme) -> {
             editor.setBackground(theme.shadow().darker());
