@@ -1,5 +1,6 @@
 package eu.amadeos.apps.writepad.domain;
 
+import eu.amadeos.commons.print.PaperSize;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

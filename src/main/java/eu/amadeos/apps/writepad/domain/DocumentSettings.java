@@ -1,5 +1,7 @@
 package eu.amadeos.apps.writepad.domain;
 
+import eu.amadeos.commons.print.PaperSize;
+
 import java.util.Objects;
 
 /**

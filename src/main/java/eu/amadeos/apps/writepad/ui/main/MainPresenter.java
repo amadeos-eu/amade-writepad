@@ -1,20 +1,20 @@
 package eu.amadeos.apps.writepad.ui.main;
 
 import com.google.inject.Inject;
-import eu.amadeos.commons.i18n.Language;
-import eu.amadeos.commons.i18n.LocaleSettings;
-import eu.amadeos.commons.i18n.Messages;
 import eu.amadeos.apps.writepad.domain.DocumentSettings;
 import eu.amadeos.apps.writepad.domain.Orientation;
-import eu.amadeos.apps.writepad.domain.PaperSize;
-import eu.amadeos.apps.writepad.repository.WritepadPreferences;
 import eu.amadeos.apps.writepad.repository.WritepadPreferences.Bar;
+import eu.amadeos.apps.writepad.repository.WritepadPreferences;
 import eu.amadeos.apps.writepad.service.DocumentService;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.DocumentFormat;
-import eu.amadeos.apps.writepad.service.format.LibreOffice;
 import eu.amadeos.apps.writepad.service.format.Documents;
+import eu.amadeos.apps.writepad.service.format.LibreOffice;
 import eu.amadeos.apps.writepad.service.layout.PageLayout;
+import eu.amadeos.commons.i18n.Language;
+import eu.amadeos.commons.i18n.LocaleSettings;
+import eu.amadeos.commons.i18n.Messages;
+import eu.amadeos.commons.print.PaperSize;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

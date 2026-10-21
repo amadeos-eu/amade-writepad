@@ -3,12 +3,12 @@ package eu.amadeos.apps.writepad.service.print;
 import eu.amadeos.apps.writepad.domain.DocumentSettings;
 import eu.amadeos.apps.writepad.domain.Orientation;
 import eu.amadeos.apps.writepad.service.layout.PagedSectionView;
+import eu.amadeos.commons.print.PrintJobs;
 
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.print.PageFormat;
 import java.awt.print.Pageable;
-import java.awt.print.Paper;
 import java.awt.print.Printable;
 import java.util.Objects;
 
@@ -35,16 +35,7 @@ public final class DocumentPageable implements Pageable, Printable {
      * layout, and the printer clips what it cannot reach.
      */
     public static PageFormat pageFormat(DocumentSettings settings) {
-        Paper paper = new Paper();
-        double width = settings.paper().width();
-        double height = settings.paper().height();
-        paper.setSize(width, height);
-        paper.setImageableArea(0, 0, width, height);
-        PageFormat format = new PageFormat();
-        format.setPaper(paper);
-        format.setOrientation(settings.orientation() == Orientation.LANDSCAPE ? PageFormat.LANDSCAPE
-                : PageFormat.PORTRAIT);
-        return format;
+        return PrintJobs.pageFormat(settings.paper(), settings.orientation() == Orientation.LANDSCAPE, 0);
     }
 
     @Override

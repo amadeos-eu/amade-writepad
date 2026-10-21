@@ -1,14 +1,14 @@
 package eu.amadeos.apps.writepad.ui.main;
 
+import eu.amadeos.apps.writepad.domain.DocumentSettings;
+import eu.amadeos.apps.writepad.domain.Orientation;
+import eu.amadeos.apps.writepad.repository.WritepadPreferences.Bar;
 import eu.amadeos.commons.i18n.Language;
 import eu.amadeos.commons.i18n.LocaleSettings;
 import eu.amadeos.commons.i18n.Messages;
 import eu.amadeos.commons.i18n.Mnemonics;
+import eu.amadeos.commons.print.PaperSize;
 import eu.amadeos.commons.swing.EdtExecutor;
-import eu.amadeos.apps.writepad.domain.DocumentSettings;
-import eu.amadeos.apps.writepad.domain.Orientation;
-import eu.amadeos.apps.writepad.domain.PaperSize;
-import eu.amadeos.apps.writepad.repository.WritepadPreferences.Bar;
 
 import javax.swing.Action;
 import javax.swing.BorderFactory;

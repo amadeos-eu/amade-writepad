@@ -3,7 +3,6 @@ package eu.amadeos.apps.writepad.service.format.docx;
 import eu.amadeos.apps.writepad.domain.DocumentSettings;
 import eu.amadeos.apps.writepad.domain.Margins;
 import eu.amadeos.apps.writepad.domain.Orientation;
-import eu.amadeos.apps.writepad.domain.PaperSize;
 import eu.amadeos.apps.writepad.domain.Units;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.Documents;
@@ -12,6 +11,7 @@ import eu.amadeos.apps.writepad.service.format.odt.OdtFormat;
 import eu.amadeos.apps.writepad.service.list.ListAttributes;
 import eu.amadeos.apps.writepad.service.list.ListFormat;
 import eu.amadeos.apps.writepad.service.list.ListNumbering;
+import eu.amadeos.commons.print.PaperSize;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.text.AttributeSet;

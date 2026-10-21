@@ -1,11 +1,11 @@
 package eu.amadeos.apps.writepad.ui.editor;
 
+import eu.amadeos.apps.writepad.OnEdt;
 import eu.amadeos.apps.writepad.domain.DocumentSettings;
 import eu.amadeos.apps.writepad.domain.Margins;
 import eu.amadeos.apps.writepad.domain.Orientation;
-import eu.amadeos.apps.writepad.domain.PaperSize;
-import eu.amadeos.apps.writepad.OnEdt;
 import eu.amadeos.apps.writepad.service.layout.PageLayout;
+import eu.amadeos.commons.print.PaperSize;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.text.BadLocationException;

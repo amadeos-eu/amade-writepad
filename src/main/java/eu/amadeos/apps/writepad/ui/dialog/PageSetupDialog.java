@@ -1,12 +1,12 @@
 package eu.amadeos.apps.writepad.ui.dialog;
 
-import eu.amadeos.commons.i18n.Messages;
-import eu.amadeos.commons.swing.EdtExecutor;
 import eu.amadeos.apps.writepad.domain.DocumentSettings;
 import eu.amadeos.apps.writepad.domain.Margins;
 import eu.amadeos.apps.writepad.domain.Orientation;
-import eu.amadeos.apps.writepad.domain.PaperSize;
 import eu.amadeos.apps.writepad.domain.Units;
+import eu.amadeos.commons.i18n.Messages;
+import eu.amadeos.commons.print.PaperSize;
+import eu.amadeos.commons.swing.EdtExecutor;
 
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
