@@ -197,6 +197,9 @@ public final class MainPresenter {
     }
 
     private void save(Runnable then) {
+        // One write at a time: two writes of the same file could finish in either order, and the older
+        // text would win. The title keeps its "*", so the user can save again when this one is done.
+        if (busy) return;
         if (file == null) saveAs(then);
         else saveTo(file, format, then);
     }

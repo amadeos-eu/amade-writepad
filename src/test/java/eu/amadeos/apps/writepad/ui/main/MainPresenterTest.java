@@ -4,14 +4,14 @@ import eu.amadeos.apps.writepad.QueueExecutor;
 import eu.amadeos.apps.writepad.domain.DocumentSettings;
 import eu.amadeos.apps.writepad.domain.Margins;
 import eu.amadeos.apps.writepad.domain.Orientation;
-import eu.amadeos.apps.writepad.domain.PaperSize;
-import eu.amadeos.apps.writepad.repository.WritepadPreferences;
 import eu.amadeos.apps.writepad.repository.WritepadPreferences.Bar;
+import eu.amadeos.apps.writepad.repository.WritepadPreferences;
 import eu.amadeos.apps.writepad.service.format.DocumentFormat;
 import eu.amadeos.apps.writepad.service.format.Documents;
 import eu.amadeos.apps.writepad.service.format.odt.OdtFormat;
 import eu.amadeos.apps.writepad.service.format.rtf.RtfFormat;
 import eu.amadeos.apps.writepad.service.layout.PageLayout;
+import eu.amadeos.commons.print.PaperSize;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -128,6 +128,29 @@ class MainPresenterTest {
         executor.runAll();
         assertTrue(presenter.isModified());
         assertEquals("*Brief.rtf - amade-writepad", view.title);
+    }
+
+    @Test
+    void aSecondSaveWaitsUntilTheFirstIsWritten() throws Exception {
+        Path brief = file("Brief.rtf", RTF);
+        presenter.open(brief);
+        executor.runAll();
+        type("1");
+        presenter.save();
+        type("2");
+        presenter.save();
+        executor.runAll();
+        assertEquals("Hallo Welt1", text(brief), "only the first save was written");
+        assertTrue(presenter.isModified());
+        presenter.save();
+        executor.runAll();
+        assertEquals("Hallo Welt12", text(brief));
+        assertFalse(presenter.isModified());
+    }
+
+    private static String text(Path rtf) throws Exception {
+        StyledDocument saved = new RtfFormat().read(Files.readAllBytes(rtf)).document();
+        return saved.getText(0, saved.getLength());
     }
 
     @Test
