@@ -91,6 +91,7 @@ public final class PagedSectionView extends BoxView {
         super.setSize(layout.totalWidth(), layout.totalHeight(pageCount));
     }
 
+    // --8<-- [start:stack]
     @Override
     protected void layoutMajorAxis(int targetSpan, int axis, int[] offsets, int[] spans) {
         int width = layout.contentWidth();
@@ -118,6 +119,7 @@ public final class PagedSectionView extends BoxView {
             if (parent != null) parent.preferenceChanged(this, true, true);
         }
     }
+    // --8<-- [end:stack]
 
     @Override
     public float getPreferredSpan(int axis) {
@@ -164,6 +166,7 @@ public final class PagedSectionView extends BoxView {
         return new Rectangle(0, 0, layout.totalWidth(), layout.totalHeight(pageCount));
     }
 
+    // --8<-- [start:paint]
     @Override
     public void paint(Graphics g, Shape allocation) {
         Graphics2D g2 = (Graphics2D) g.create();
@@ -194,7 +197,9 @@ public final class PagedSectionView extends BoxView {
             g2.dispose();
         }
     }
+    // --8<-- [end:paint]
 
+    // --8<-- [start:paint-page]
     /**
      * Paints one page without zoom and without the page decoration, with the top-left corner of the paper at
      * (0, 0): for printing.
@@ -211,6 +216,7 @@ public final class PagedSectionView extends BoxView {
             g2.dispose();
         }
     }
+    // --8<-- [end:paint-page]
 
     private void paintFooter(Graphics2D g, int page) {
         String text = footer.apply(page);

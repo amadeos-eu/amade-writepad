@@ -3,7 +3,6 @@ package eu.amadeos.apps.writepad.service.format.odt;
 import eu.amadeos.apps.writepad.domain.DocumentSettings;
 import eu.amadeos.apps.writepad.domain.Margins;
 import eu.amadeos.apps.writepad.domain.Orientation;
-import eu.amadeos.apps.writepad.domain.PaperSize;
 import eu.amadeos.apps.writepad.domain.Units;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.Documents;
@@ -11,6 +10,7 @@ import eu.amadeos.apps.writepad.service.format.WritepadDocument;
 import eu.amadeos.apps.writepad.service.list.ListAttributes;
 import eu.amadeos.apps.writepad.service.list.ListFormat;
 import eu.amadeos.apps.writepad.service.list.ListNumbering;
+import eu.amadeos.commons.print.PaperSize;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.text.AttributeSet;
@@ -109,6 +109,7 @@ class OdtFormatTest {
         return out.toByteArray();
     }
 
+    // --8<-- [start:package]
     @Test
     void writesAPackageOtherProgramsRecognise() throws IOException, BadLocationException {
         StyledDocument doc = Documents.newDocument();
@@ -122,6 +123,7 @@ class OdtFormatTest {
                 "META-INF/manifest.xml")), files.keySet().toString());
         assertTrue(new String(files.get("META-INF/manifest.xml"), StandardCharsets.UTF_8).contains(Odf.MIME_TYPE));
     }
+    // --8<-- [end:package]
 
     @Test
     void recognisesOnlyOpenDocumentText() throws IOException {

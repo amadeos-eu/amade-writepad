@@ -24,6 +24,7 @@ public final class OdtFormat implements DocumentFormat {
         return true;
     }
 
+    // --8<-- [start:recognizes]
     /**
      * A ZIP file whose first entry is {@code mimetype}, stored, with the type of ODF text. DOCX files are ZIP
      * files too, so the type has to be checked.
@@ -39,6 +40,7 @@ public final class OdtFormat implements DocumentFormat {
         if (nameLength != name.length || !startsWith(head, 30, name)) return false;
         return startsWith(head, 30 + nameLength + extraLength, type);
     }
+    // --8<-- [end:recognizes]
 
     private static boolean startsWith(byte[] bytes, int offset, byte[] prefix) {
         if (offset < 0 || bytes.length - offset < prefix.length) return false;

@@ -72,6 +72,7 @@ public final class ListNumbering {
         }
     }
 
+    // --8<-- [start:compute]
     static Map<Element, String> compute(StyledDocument document) {
         Map<Element, String> labels = new IdentityHashMap<>();
         Map<Integer, int[]> counters = new HashMap<>();
@@ -89,4 +90,5 @@ public final class ListNumbering {
         }
         return labels;
     }
+    // --8<-- [end:compute]
 }

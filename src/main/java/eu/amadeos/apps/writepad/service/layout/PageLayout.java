@@ -109,6 +109,7 @@ public final class PageLayout {
         return Math.max(0, (int) Math.floor((y - GAP) / (pageHeight() + GAP)));
     }
 
+    // --8<-- [start:place]
     /**
      * Where a line of the given height that would start at y goes: unchanged if it fits on its page,
      * otherwise at the top of the text of the next page. Lines starting in a margin or gap move to the next
@@ -121,6 +122,7 @@ public final class PageLayout {
         if (y == contentTop(page)) return y;
         return contentTop(page + 1);
     }
+    // --8<-- [end:place]
 
     /** Number of pages a layout ending at y (exclusive) needs. */
     public int pagesUpTo(int y) {

@@ -40,6 +40,7 @@ public final class FormatRegistry {
         return extension(path).flatMap(ext -> formats.stream().filter(f -> f.extensions().contains(ext)).findFirst());
     }
 
+    // --8<-- [start:for-opening]
     /**
      * The format to open a file with: one that recognizes the content, else the one for the extension, else
      * the first format that keeps no formatting (plain text), which opens anything that is text.
@@ -51,6 +52,7 @@ public final class FormatRegistry {
         return forPath(path).orElseGet(() -> formats.stream().filter(f -> !f.keepsFormatting()).findFirst()
                 .orElse(defaultFormat()));
     }
+    // --8<-- [end:for-opening]
 
     /** The extension in lower case, without dot; empty if the name has none. */
     public static Optional<String> extension(Path path) {

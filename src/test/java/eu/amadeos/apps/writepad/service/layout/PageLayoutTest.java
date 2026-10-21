@@ -28,12 +28,14 @@ class PageLayoutTest {
         assertEquals(y, layout.place(y, 14));
     }
 
+    // --8<-- [start:crossing]
     @Test
     void lineCrossingTheBottomMarginMovesToNextPage() {
         int y = layout.contentBottom(0) - 10;
         assertEquals(layout.contentTop(1), layout.place(y, 14));
         assertEquals(y, layout.place(y, 10));
     }
+    // --8<-- [end:crossing]
 
     @Test
     void lineStartingInMarginOrGapMovesToText() {

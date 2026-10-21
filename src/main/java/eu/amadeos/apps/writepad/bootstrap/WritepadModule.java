@@ -40,6 +40,7 @@ public final class WritepadModule extends AbstractModule {
     @Override
     protected void configure() {
         bind(PrintService.class).in(Scopes.SINGLETON);
+        // --8<-- [start:formats]
         // The formats files can be opened and saved in; the registry makes the first that keeps formatting
         // (ODT) the default for new documents.
         Multibinder<DocumentFormat> formats = Multibinder.newSetBinder(binder(), DocumentFormat.class);
@@ -48,6 +49,7 @@ public final class WritepadModule extends AbstractModule {
         formats.addBinding().to(DocFormat.class);
         formats.addBinding().to(RtfFormat.class);
         formats.addBinding().to(PlainTextFormat.class);
+        // --8<-- [end:formats]
         bind(FormatRegistry.class).in(Scopes.SINGLETON);
         bind(DocumentService.class).in(Scopes.SINGLETON);
         bind(MainWindow.class).in(Scopes.SINGLETON);

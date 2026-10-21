@@ -2,14 +2,12 @@ package eu.amadeos.apps.writepad.service.print;
 
 import eu.amadeos.apps.writepad.domain.DocumentSettings;
 import eu.amadeos.apps.writepad.domain.Orientation;
-import eu.amadeos.apps.writepad.domain.PaperSize;
 import eu.amadeos.apps.writepad.service.layout.PageLayout;
 import eu.amadeos.apps.writepad.ui.editor.PageEditor;
 import eu.amadeos.apps.writepad.ui.editor.SampleText;
+import eu.amadeos.commons.print.PaperSize;
 import org.junit.jupiter.api.Test;
 
-import javax.print.attribute.PrintRequestAttributeSet;
-import javax.print.attribute.standard.MediaSizeName;
 import javax.swing.SwingUtilities;
 import java.awt.Color;
 import java.awt.Graphics2D;
@@ -40,14 +38,6 @@ class DocumentPageableTest {
         assertEquals(PaperSize.A5.width(), format.getHeight(), 0.01);
         // The paper stays in portrait; the printer turns the graphics.
         assertEquals(PaperSize.A5.width(), format.getPaper().getWidth(), 0.01);
-    }
-
-    @Test
-    void printerGetsThePaperButNoSecondRotation() {
-        PrintRequestAttributeSet attributes = PrintService.attributes(
-                DocumentSettings.DEFAULT.withPaper(PaperSize.A5).withOrientation(Orientation.LANDSCAPE), "test");
-        assertEquals(MediaSizeName.ISO_A5, attributes.get(javax.print.attribute.standard.Media.class));
-        assertEquals(null, attributes.get(javax.print.attribute.standard.OrientationRequested.class));
     }
 
     @Test

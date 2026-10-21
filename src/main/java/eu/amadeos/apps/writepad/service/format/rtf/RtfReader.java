@@ -3,13 +3,13 @@ package eu.amadeos.apps.writepad.service.format.rtf;
 import eu.amadeos.apps.writepad.domain.DocumentSettings;
 import eu.amadeos.apps.writepad.domain.Margins;
 import eu.amadeos.apps.writepad.domain.Orientation;
-import eu.amadeos.apps.writepad.domain.PaperSize;
 import eu.amadeos.apps.writepad.domain.Units;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.Documents;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
 import eu.amadeos.apps.writepad.service.list.ListAttributes;
 import eu.amadeos.apps.writepad.service.list.ListFormat;
+import eu.amadeos.commons.print.PaperSize;
 
 import javax.swing.text.BadLocationException;
 import javax.swing.text.SimpleAttributeSet;
