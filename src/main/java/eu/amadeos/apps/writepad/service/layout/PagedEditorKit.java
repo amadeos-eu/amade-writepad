@@ -48,6 +48,7 @@ public final class PagedEditorKit extends StyledEditorKit {
         return new PagedEditorKit(layout);
     }
 
+    // --8<-- [start:factory]
     private final class Factory implements ViewFactory {
         @Override
         public View create(Element element) {
@@ -64,4 +65,5 @@ public final class PagedEditorKit extends StyledEditorKit {
             };
         }
     }
+    // --8<-- [end:factory]
 }

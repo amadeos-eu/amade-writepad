@@ -78,6 +78,7 @@ final class OdtWriter {
         return new OdtWriter(content).zip();
     }
 
+    // --8<-- [start:zip]
     private byte[] zip() throws IOException {
         fonts.add(Documents.DEFAULT_FAMILY);
         byte[] body = xml(this::content);
@@ -102,6 +103,7 @@ final class OdtWriter {
         }
         return out.toByteArray();
     }
+    // --8<-- [end:zip]
 
     private static void put(ZipOutputStream zip, String name, byte[] data) throws IOException {
         zip.putNextEntry(new ZipEntry(name));

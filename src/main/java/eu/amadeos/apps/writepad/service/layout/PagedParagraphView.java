@@ -66,6 +66,7 @@ final class PagedParagraphView extends ParagraphView {
         return laidOutHeight;
     }
 
+    // --8<-- [start:layout]
     @Override
     protected void layoutMajorAxis(int targetSpan, int axis, int[] offsets, int[] spans) {
         int top = startY + getTopInset();
@@ -82,6 +83,7 @@ final class PagedParagraphView extends ParagraphView {
         pushed = moved;
         laidOutHeight = getTopInset() + offset + getBottomInset();
     }
+    // --8<-- [end:layout]
 
     @Override
     protected SizeRequirements calculateMajorAxisRequirements(int axis, SizeRequirements r) {

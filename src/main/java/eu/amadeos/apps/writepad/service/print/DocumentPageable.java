@@ -55,6 +55,7 @@ public final class DocumentPageable implements Pageable, Printable {
         return this;
     }
 
+    // --8<-- [start:print]
     @Override
     public int print(Graphics graphics, PageFormat pageFormat, int pageIndex) {
         if (pageIndex < 0 || pageIndex >= pages) return NO_SUCH_PAGE;
@@ -63,6 +64,7 @@ public final class DocumentPageable implements Pageable, Printable {
         section.paintPage((Graphics2D) graphics, pageIndex);
         return PAGE_EXISTS;
     }
+    // --8<-- [end:print]
 
     private void check(int pageIndex) {
         if (pageIndex < 0 || pageIndex >= pages) throw new IndexOutOfBoundsException("No page " + pageIndex);

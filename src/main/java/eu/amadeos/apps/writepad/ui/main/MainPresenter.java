@@ -196,6 +196,7 @@ public final class MainPresenter {
         });
     }
 
+    // --8<-- [start:save]
     private void save(Runnable then) {
         // One write at a time: two writes of the same file could finish in either order, and the older
         // text would win. The title keeps its "*", so the user can save again when this one is done.
@@ -243,6 +244,7 @@ public final class MainPresenter {
             then.run();
         }, ui);
     }
+    // --8<-- [end:save]
 
     private String message(Throwable t) {
         if (t instanceof LibreOffice.MissingException) return msg.get("error.needs-libreoffice");

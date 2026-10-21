@@ -130,6 +130,7 @@ class MainPresenterTest {
         assertEquals("*Brief.rtf - amade-writepad", view.title);
     }
 
+    // --8<-- [start:second-save]
     @Test
     void aSecondSaveWaitsUntilTheFirstIsWritten() throws Exception {
         Path brief = file("Brief.rtf", RTF);
@@ -147,6 +148,7 @@ class MainPresenterTest {
         assertEquals("Hallo Welt12", text(brief));
         assertFalse(presenter.isModified());
     }
+    // --8<-- [end:second-save]
 
     private static String text(Path rtf) throws Exception {
         StyledDocument saved = new RtfFormat().read(Files.readAllBytes(rtf)).document();

@@ -109,6 +109,7 @@ class OdtFormatTest {
         return out.toByteArray();
     }
 
+    // --8<-- [start:package]
     @Test
     void writesAPackageOtherProgramsRecognise() throws IOException, BadLocationException {
         StyledDocument doc = Documents.newDocument();
@@ -122,6 +123,7 @@ class OdtFormatTest {
                 "META-INF/manifest.xml")), files.keySet().toString());
         assertTrue(new String(files.get("META-INF/manifest.xml"), StandardCharsets.UTF_8).contains(Odf.MIME_TYPE));
     }
+    // --8<-- [end:package]
 
     @Test
     void recognisesOnlyOpenDocumentText() throws IOException {
