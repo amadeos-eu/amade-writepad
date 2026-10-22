@@ -19,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class LibreOfficeTest {
     private static final Path SOFFICE = Path.of("/usr/bin/soffice");
 
+    // --8<-- [start:fake]
     @Test
     void convertsInAProfileOfItsOwnAndCleansUp() throws IOException {
         List<List<String>> commands = new ArrayList<>();
@@ -40,6 +41,7 @@ class LibreOfficeTest {
         assertEquals("document.doc", input.getFileName().toString());
         assertFalse(Files.exists(input.getParent()), "the temporary folder is deleted");
     }
+    // --8<-- [end:fake]
 
     @Test
     void reportsWhatLibreOfficePrinted() {

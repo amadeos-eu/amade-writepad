@@ -79,6 +79,7 @@ public final class LibreOffice {
             Path out = work.resolve("out");
             Files.write(in, input);
             Files.createDirectories(out);
+            // --8<-- [start:run]
             List<String> command = List.of(soffice.toString(),
                     "-env:UserInstallation=" + work.resolve("profile").toUri(), "--headless", "--norestore",
                     "--nologo", "--convert-to", target, "--outdir", out.toString(), in.toString());
@@ -89,6 +90,7 @@ public final class LibreOffice {
                 Thread.currentThread().interrupt();
                 throw new IOException("Interrupted while LibreOffice converted the document", e);
             }
+            // --8<-- [end:run]
             String outputExtension = target.contains(":") ? target.substring(0, target.indexOf(':')) : target;
             Path result = out.resolve("document." + outputExtension);
             if (!run.succeeded() || !Files.isRegularFile(result)) {
