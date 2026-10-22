@@ -11,6 +11,7 @@ import eu.amadeos.apps.writepad.service.list.ListNumbering;
 import eu.amadeos.apps.writepad.ui.dialog.ParagraphDialog;
 import eu.amadeos.apps.writepad.ui.editor.PageEditor;
 import eu.amadeos.apps.writepad.ui.editor.TextFormatting;
+import eu.amadeos.commons.swing.ToolButtons;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

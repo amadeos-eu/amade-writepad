@@ -4,6 +4,7 @@ import eu.amadeos.commons.i18n.Messages;
 import eu.amadeos.commons.swing.EdtExecutor;
 import eu.amadeos.apps.writepad.ui.editor.PageEditor;
 import eu.amadeos.apps.writepad.ui.editor.TextFormatting;
+import eu.amadeos.commons.swing.ToolButtons;
 
 import javax.swing.DefaultComboBoxModel;
 import javax.swing.JComboBox;

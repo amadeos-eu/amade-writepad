@@ -44,7 +44,7 @@ Java 25, Swing and Guice; theme, Motif look, language and start-up come from [am
 - `service.print`: `DocumentPageable` paints each page with the same views, unscaled; `PrintService` asks for the paper through the print dialog.
 - `ui`: `PageEditor` (the `JTextPane` on the dark desk), `TextFormatting` (formatting of selection or caret), `EditorActions` (one action per command, shared by menus and bars), `MainToolBar`, `FormatBar`, `MainWindow`, `MainMenuBar`, `MainPresenter`, `PageSetupDialog`.
 - `ui.ruler`: `Ruler` (the component, in the scroll pane's column header) and `RulerModel` (markers and dragging, without Swing). `service.layout.TabStops` decides where a tab goes.
-- `ui.icons`: `ToolIcon`, the toolbar icons drawn in Java2D in the theme's colours, so the app needs no icon theme.
+- `ui.icons`: `WritepadGlyph` and `TextColorGlyph`, the toolbar glyphs only WritePad needs. `ToolIcon` (icons drawn in Java2D in the theme's colours, so the app needs no icon theme), the common glyphs and `ToolButtons` come from amade-commons.
 - `repository`: `DocumentFiles` (atomic writes that keep file permissions), `WritepadPreferences` (`~/.config/amadeos/writepad/writepad.properties`).
 
 ## Build and run
