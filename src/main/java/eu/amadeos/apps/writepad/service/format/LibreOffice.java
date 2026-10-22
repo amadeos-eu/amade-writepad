@@ -1,15 +1,18 @@
 package eu.amadeos.apps.writepad.service.format;
 
+import eu.amadeos.commons.process.CommandRunner;
+import eu.amadeos.commons.process.ProgramResult;
+
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 /**
@@ -18,12 +21,14 @@ import java.util.stream.Stream;
  * in a temporary folder, so that it works while the user has LibreOffice open and leaves their settings alone.
  */
 public final class LibreOffice {
-    private static final long TIMEOUT_SECONDS = 120;
+    private static final Duration TIMEOUT = Duration.ofSeconds(120);
 
     private final Path soffice;
+    private final CommandRunner runner;
 
-    private LibreOffice(Path soffice) {
+    private LibreOffice(Path soffice, CommandRunner runner) {
         this.soffice = soffice;
+        this.runner = runner;
     }
 
     /** LibreOffice as installed: {@code soffice} or {@code libreoffice} on the path, or in its Windows folder. */
@@ -46,12 +51,17 @@ public final class LibreOffice {
             }
         }
         return candidates.stream().filter(p -> Files.isRegularFile(p) && Files.isExecutable(p)).findFirst()
-                .map(LibreOffice::new);
+                .map(LibreOffice::at);
     }
 
     /** LibreOffice at the given program, for tests. */
     public static LibreOffice at(Path soffice) {
-        return new LibreOffice(soffice);
+        return at(soffice, CommandRunner.system());
+    }
+
+    /** LibreOffice at the given program, started by {@code runner}; tests answer with a fake. */
+    public static LibreOffice at(Path soffice, CommandRunner runner) {
+        return new LibreOffice(soffice, runner);
     }
 
     /**
@@ -69,28 +79,24 @@ public final class LibreOffice {
             Path out = work.resolve("out");
             Files.write(in, input);
             Files.createDirectories(out);
-            ProcessBuilder builder = new ProcessBuilder(soffice.toString(),
+            // --8<-- [start:run]
+            List<String> command = List.of(soffice.toString(),
                     "-env:UserInstallation=" + work.resolve("profile").toUri(), "--headless", "--norestore",
                     "--nologo", "--convert-to", target, "--outdir", out.toString(), in.toString());
-            builder.redirectErrorStream(true);
-            builder.redirectOutput(work.resolve("log.txt").toFile());
-            Process process = builder.start();
-            boolean finished;
+            ProgramResult run;
             try {
-                finished = process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                run = runner.run(command, TIMEOUT);
             } catch (InterruptedException e) {
-                process.destroyForcibly();
                 Thread.currentThread().interrupt();
                 throw new IOException("Interrupted while LibreOffice converted the document", e);
             }
-            if (!finished) {
-                process.destroyForcibly();
-                throw new IOException("LibreOffice took longer than " + TIMEOUT_SECONDS + " s to convert the document");
-            }
+            // --8<-- [end:run]
             String outputExtension = target.contains(":") ? target.substring(0, target.indexOf(':')) : target;
             Path result = out.resolve("document." + outputExtension);
-            if (process.exitValue() != 0 || !Files.isRegularFile(result)) {
-                String log = Files.readString(work.resolve("log.txt"), Charset.defaultCharset()).strip();
+            if (!run.succeeded() || !Files.isRegularFile(result)) {
+                // soffice reports problems on either stream, in the system's encoding
+                String log = (run.stderrText(Charset.defaultCharset()) + "\n"
+                        + run.stdoutText(Charset.defaultCharset())).strip();
                 throw new IOException("LibreOffice could not convert the document"
                         + (log.isEmpty() ? "" : ": " + log));
             }
