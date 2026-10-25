@@ -4,7 +4,11 @@ plugins {
 }
 
 group = 'eu.amadeos'
-version = '0.1.0'
+// CI computes the version from the Conventional Commits since the last release tag and passes it as
+// -PappVersion (datazuul/amadeos-ci scripts/next-version.sh); a build without it is a local development build.
+version = findProperty('appVersion') ?: '0.0.0-dev.0'
+// Debian sorts 1.1.0~dev.57 before 1.1.0 (with - it would sort after it).
+def debVersion = version.toString().replace('-', '~')
 
 java {
     toolchain {
@@ -107,7 +111,7 @@ exec /usr/bin/java -jar /opt/amade-writepad/amade-writepad.jar "\$@"
         }
 
         new File(debianDir, 'control').text = """Package: amade-writepad
-Version: ${project.version}
+Version: ${debVersion}
 Section: text
 Priority: optional
 Architecture: all
@@ -122,7 +126,7 @@ Description: Document editor for amadeOS in the style of WordPad
  Part of the amadeOS desktop.
 """
 
-        def debFile = new File(distDir, "amade-writepad_${project.version}_all.deb")
+        def debFile = new File(distDir, "amade-writepad_${debVersion}_all.deb")
         def process = new ProcessBuilder('dpkg-deb', '--root-owner-group', '--build',
                 stagingDir.absolutePath, debFile.absolutePath)
                 .redirectErrorStream(true)
@@ -143,7 +147,7 @@ tasks.register('installToAmadeOs') {
     doLast {
         def targetDir = file('../amadeos/config/packages.chroot')
         targetDir.mkdirs()
-        def debFile = new File(layout.buildDirectory.get().asFile, "distributions/amade-writepad_${project.version}_all.deb")
+        def debFile = new File(layout.buildDirectory.get().asFile, "distributions/amade-writepad_${debVersion}_all.deb")
         copy {
             from debFile
             into targetDir
@@ -182,7 +186,7 @@ tasks.register('windowsInstaller') {
         def args = [jpackage.absolutePath,
                     '--type', type,
                     '--name', 'amade-writepad',
-                    // MSI versions are numeric only: 0.1.0-SNAPSHOT becomes 0.1.0
+                    // MSI versions are numeric only: 1.1.0-dev.57 becomes 1.1.0
                     '--app-version', project.version.toString().replaceAll(/[^0-9.].*$/, ''),
                     '--vendor', 'datazuul',
                     '--description', 'Document editor in the style of WordPad',
