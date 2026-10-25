@@ -1,8 +1,10 @@
 name: Build
 
+# develop builds X.Y.Z-dev.N, release X.Y.Z-pre.N and main the release X.Y.Z, which the release job
+# tags and publishes with the package (see CONTRIBUTING.md of datazuul/amadeos, "Commits and versions").
 on:
   push:
-    branches: [main]
+    branches: [develop, release, main]
   pull_request:
 
 permissions:
@@ -11,8 +13,18 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      channel: ${{ steps.version.outputs.channel }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The version is computed from the history since the last release tag.
+          fetch-depth: 0
+      - id: version
+        uses: datazuul/amadeos-ci/version@main
+        with:
+          metainfo: packaging/eu.amadeos.apps.writepad.metainfo.xml
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -37,7 +49,7 @@ jobs:
           test "$count" -ge 100
           test "$skipped" -eq 0
       - name: Package
-        run: ./gradlew jar deb --no-daemon
+        run: ./gradlew jar deb --no-daemon -PappVersion=${{ steps.version.outputs.version }}
       - name: Check the fat jar and the package
         run: |
           jar=$(ls build/libs/amade-writepad-*.jar)
@@ -57,6 +69,10 @@ jobs:
           name: amade-writepad-deb
           path: build/distributions/*.deb
           if-no-files-found: error
+      - name: Check the package version
+        run: |
+          deb=$(ls build/distributions/amade-writepad_*_all.deb)
+          test "$(dpkg-deb --field "$deb" Version)" = "${{ steps.version.outputs.deb-version }}"
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@v7
@@ -65,6 +81,8 @@ jobs:
           path: build/reports/tests/test
 
   windows:
+    # The installers carry the version of the Linux build.
+    needs: test
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -93,10 +111,11 @@ jobs:
         id: windows-tests
         continue-on-error: true
         run: ./gradlew test --no-daemon
+      # The -P argument is quoted because PowerShell splits 1.0.0-dev.N at the first dot.
       - name: Build the MSI
-        run: ./gradlew windowsInstaller --no-daemon
+        run: ./gradlew windowsInstaller --no-daemon "-PappVersion=${{ needs.test.outputs.version }}"
       - name: Build the portable app image
-        run: ./gradlew windowsInstaller -PinstallerType=app-image --no-daemon
+        run: ./gradlew windowsInstaller -PinstallerType=app-image --no-daemon "-PappVersion=${{ needs.test.outputs.version }}"
       - name: Check and pack the results
         shell: pwsh
         run: |
@@ -120,3 +139,36 @@ jobs:
         with:
           name: test-reports-windows
           path: build/reports/tests/test
+
+  # Only on main, after the release branch was promoted: tag vX.Y.Z and publish the GitHub Release.
+  release:
+    needs: [test, windows]
+    if: needs.test.outputs.channel == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v8
+        with:
+          name: amade-writepad-deb
+          path: dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: amade-writepad-windows
+          path: dist
+      - uses: datazuul/amadeos-ci/release@main
+        with:
+          version: ${{ needs.test.outputs.version }}
+          files: dist/*.deb dist/msi/*.msi dist/*.zip
+
+  commits:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: datazuul/amadeos-ci/check-commits@main
