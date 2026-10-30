@@ -2,7 +2,7 @@
 
 ## Building and testing
 
-You need JDK 25. With a checkout of [amade-commons](https://github.com/datazuul/amade-commons) next to this
+You need JDK 25. With a checkout of [amade-commons](https://github.com/amadeos-eu/amade-commons) next to this
 one, `settings.gradle` builds against that checkout; otherwise Gradle takes the version from JitPack named in
 `build.gradle`.
 
