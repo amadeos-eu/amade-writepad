@@ -1,6 +1,6 @@
 # amade-writepad
 
-**amade-writepad** is a document editor for the [amadeOS](https://github.com/datazuul/amadeos) desktop, in the spirit of WordPad and GeoWorks Write: formatted text on real pages, ready to print.
+**amade-writepad** is a document editor for the [amadeOS](https://github.com/amadeos-eu/amadeos) desktop, in the spirit of WordPad and GeoWorks Write: formatted text on real pages, ready to print.
 
 ![License](https://img.shields.io/badge/license-EUPL--1.2-blue)
 ![Java](https://img.shields.io/badge/Java-25-orange)
@@ -11,7 +11,7 @@
 - Page layout in A5, A4, Letter and Legal, portrait or landscape; what you see is what prints
 - Open and save ODT (default), DOCX and RTF; open DOC
 - Five languages (English, Deutsch, Français, Español, Italiano), following the amadeOS desktop language
-- Java 25, Swing, Guice and [amade-commons](https://github.com/datazuul/amade-commons); Debian package
+- Java 25, Swing, Guice and [amade-commons](https://github.com/amadeos-eu/amade-commons); Debian package
 
 ## Status
 
@@ -35,7 +35,7 @@ The window title shows the file and `*` for unsaved changes; New, Open and Exit 
 
 ## Architecture
 
-Java 25, Swing and Guice; theme, Motif look, language and start-up come from [amade-commons](https://github.com/datazuul/amade-commons).
+Java 25, Swing and Guice; theme, Motif look, language and start-up come from [amade-commons](https://github.com/amadeos-eu/amade-commons).
 
 - `domain`: `PaperSize`, `Orientation`, `Margins`, `DocumentSettings` (all lengths in points, 1/72 inch).
 - `service.layout`: the paged view. `PagedEditorKit` replaces the section and paragraph views of Swing's `StyledEditorKit`. `PagedParagraphView` moves every line that would cross the bottom margin to the top of the next page; `PagedSectionView` stacks the paragraphs, paints the sheets and applies the zoom, so that everything inside the views stays in points. `PageLayout` holds the page geometry and the zoom.

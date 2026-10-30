@@ -55,8 +55,8 @@
     <category>WordProcessor</category>
   </categories>
 
-  <url type="homepage">https://github.com/datazuul/amade-writepad</url>
-  <url type="bugtracker">https://github.com/datazuul/amade-writepad/issues</url>
+  <url type="homepage">https://github.com/amadeos-eu/amade-writepad</url>
+  <url type="bugtracker">https://github.com/amadeos-eu/amade-writepad/issues</url>
   <developer id="eu.amadeos">
     <name>amadeOS Project</name>
   </developer>
@@ -68,7 +68,7 @@
       <caption xml:lang="fr">Une invitation sur une page A4</caption>
       <caption xml:lang="es">Una invitación en una página A4</caption>
       <caption xml:lang="it">Un invito su una pagina A4</caption>
-      <image>https://raw.githubusercontent.com/datazuul/amade-writepad/main/docs/screenshots/amade-writepad.png</image>
+      <image>https://raw.githubusercontent.com/amadeos-eu/amade-writepad/main/docs/screenshots/amade-writepad.png</image>
     </screenshot>
   </screenshots>
 
