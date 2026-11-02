@@ -3,6 +3,8 @@ package eu.amadeos.apps.writepad.service.format.odt;
 import eu.amadeos.apps.writepad.domain.DocumentSettings;
 import eu.amadeos.apps.writepad.domain.Margins;
 import eu.amadeos.apps.writepad.domain.Orientation;
+import eu.amadeos.apps.writepad.domain.Picture;
+import eu.amadeos.apps.writepad.service.picture.PictureAttributes;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.Documents;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
@@ -28,6 +30,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -64,6 +67,13 @@ final class OdtWriter {
     /** Our list ids by order of appearance (L1, L2, ...), with the styles of their levels as first used. */
     private final Map<Integer, Integer> listNumbers = new LinkedHashMap<>();
     private final Map<Integer, ListFormat[]> listLevels = new HashMap<>();
+    /** The image files, by their data, with their path in the package (Pictures/1.png, ...). */
+    private final Map<byte[], String> pictureFiles = new IdentityHashMap<>();
+    private final Map<String, String> pictureTypes = new LinkedHashMap<>();
+    /** Frame styles (fr1, ...) by their graphic properties. */
+    private final Map<String, String> graphicStyles = new LinkedHashMap<>();
+    private final Map<String, Map<String, String>> graphicProps = new HashMap<>();
+    private int frames;
 
     /** The paragraph formatting of one P style. */
     private record Props(Map<String, String> paragraph, List<TabStop> tabs, Map<String, String> text) {
@@ -99,6 +109,7 @@ final class OdtWriter {
             put(zip, "content.xml", body);
             put(zip, "styles.xml", xml(this::styles));
             put(zip, "meta.xml", xml(this::meta));
+            for (Map.Entry<byte[], String> file : pictureFiles.entrySet()) put(zip, file.getValue(), file.getKey());
             put(zip, "META-INF/manifest.xml", xml(this::manifest));
         }
         return out.toByteArray();
@@ -146,6 +157,7 @@ final class OdtWriter {
         discard.writeStartElement("office", "text", Odf.OFFICE);
         paragraphs(discard);
         discard.close();
+        frames = 0;
 
         root(xml, "document-content");
         fontFaces(xml);
@@ -161,6 +173,15 @@ final class OdtWriter {
             xml.writeEndElement();
         }
         for (Map.Entry<Integer, Integer> list : listNumbers.entrySet()) listStyle(xml, list.getKey(), list.getValue());
+        for (Map.Entry<String, String> style : graphicStyles.entrySet()) {
+            xml.writeStartElement("style", "style", Odf.STYLE);
+            xml.writeAttribute("style", Odf.STYLE, "name", style.getValue());
+            xml.writeAttribute("style", Odf.STYLE, "family", "graphic");
+            xml.writeAttribute("style", Odf.STYLE, "parent-style-name", "Graphics");
+            xml.writeEmptyElement("style", "graphic-properties", Odf.STYLE);
+            attributes(xml, graphicProps.get(style.getKey()));
+            xml.writeEndElement();
+        }
         xml.writeEndElement();
         xml.writeStartElement("office", "body", Odf.OFFICE);
         xml.writeStartElement("office", "text", Odf.OFFICE);
@@ -256,6 +277,14 @@ final class OdtWriter {
             }
             if (text.endsWith("\n")) text = text.substring(0, text.length() - 1);
             if (text.isEmpty()) continue;
+            Picture picture = PictureAttributes.picture(run.getAttributes());
+            if (picture != null) {
+                if (open != null) xml.writeEndElement();
+                open = null;
+                frame(xml, picture);
+                lastSpace[0] = false;
+                continue;
+            }
             // Runs in the same format (a line break has an element of its own) share one span.
             String style = textStyle(run.getAttributes());
             if (!style.equals(open)) {
@@ -269,6 +298,73 @@ final class OdtWriter {
         if (open != null) xml.writeEndElement();
         xml.writeEndElement();
     }
+
+    // --8<-- [start:frame]
+    /**
+     * A picture as a frame with an image in the package: anchored as a character in the line, or to the
+     * paragraph with the text wrapping on the other side.
+     */
+    private void frame(XMLStreamWriter xml, Picture picture) throws XMLStreamException {
+        double border = 2 * picture.border().width();
+        xml.writeStartElement("draw", "frame", Odf.DRAW);
+        xml.writeAttribute("draw", Odf.DRAW, "style-name", graphicStyle(picture));
+        xml.writeAttribute("draw", Odf.DRAW, "name", "Picture" + (++frames));
+        xml.writeAttribute("text", Odf.TEXT, "anchor-type", picture.placement().floats() ? "paragraph" : "as-char");
+        xml.writeAttribute("svg", Odf.SVG, "width", Odf.cm(picture.width() + border));
+        xml.writeAttribute("svg", Odf.SVG, "height", Odf.cm(picture.height() + border));
+        xml.writeAttribute("draw", Odf.DRAW, "z-index", "0");
+        xml.writeEmptyElement("draw", "image", Odf.DRAW);
+        xml.writeAttribute("xlink", Odf.XLINK, "href", pictureFile(picture));
+        xml.writeAttribute("xlink", Odf.XLINK, "type", "simple");
+        xml.writeAttribute("xlink", Odf.XLINK, "show", "embed");
+        xml.writeAttribute("xlink", Odf.XLINK, "actuate", "onLoad");
+        xml.writeAttribute("draw", Odf.DRAW, "mime-type", picture.mimeType());
+        if (!picture.description().isEmpty()) {
+            xml.writeStartElement("svg", "desc", Odf.SVG);
+            xml.writeCharacters(picture.description());
+            xml.writeEndElement();
+        }
+        xml.writeEndElement();
+    }
+
+    private String pictureFile(Picture picture) {
+        return pictureFiles.computeIfAbsent(picture.data(), data -> {
+            String path = "Pictures/" + (pictureFiles.size() + 1) + "." + picture.extension();
+            pictureTypes.put(path, picture.mimeType());
+            return path;
+        });
+    }
+
+    private String graphicStyle(Picture picture) {
+        Map<String, String> g = new LinkedHashMap<>();
+        switch (picture.placement()) {
+            case IN_LINE -> {
+                g.put("style:wrap", "none");
+                g.put("style:vertical-pos", "top");
+                g.put("style:vertical-rel", "baseline");
+            }
+            case FLOAT_LEFT, FLOAT_RIGHT -> {
+                boolean left = picture.placement() == Picture.Placement.FLOAT_LEFT;
+                g.put("style:wrap", left ? "right" : "left");
+                g.put("style:number-wrapped-paragraphs", "no-limit");
+                g.put("style:vertical-pos", "top");
+                g.put("style:vertical-rel", "paragraph");
+                g.put("style:horizontal-pos", left ? "left" : "right");
+                g.put("style:horizontal-rel", "paragraph");
+                g.put(left ? "fo:margin-right" : "fo:margin-left", Odf.cm(9));
+                g.put("fo:margin-bottom", Odf.cm(6));
+            }
+        }
+        g.put("fo:padding", "0cm");
+        g.put("fo:border", picture.border() == Picture.Border.NONE ? "none"
+                : Odf.pt(picture.border().width()) + " solid #000000");
+        String key = g.toString();
+        return graphicStyles.computeIfAbsent(key, k -> {
+            graphicProps.put(k, g);
+            return "fr" + (graphicStyles.size() + 1);
+        });
+    }
+    // --8<-- [end:frame]
 
     /**
      * Writes text with ODF's white space rules: XML white space collapses, so a space after a space or at the
@@ -550,6 +646,18 @@ final class OdtWriter {
         xml.writeAttribute("style", Odf.STYLE, "name", "Standard");
         xml.writeAttribute("style", Odf.STYLE, "family", "paragraph");
         xml.writeAttribute("style", Odf.STYLE, "class", "text");
+        // The parent of the pictures' frame styles: LibreOffice takes frames without it for drawing shapes.
+        xml.writeStartElement("style", "style", Odf.STYLE);
+        xml.writeAttribute("style", Odf.STYLE, "name", "Graphics");
+        xml.writeAttribute("style", Odf.STYLE, "family", "graphic");
+        xml.writeEmptyElement("style", "graphic-properties", Odf.STYLE);
+        xml.writeAttribute("text", Odf.TEXT, "anchor-type", "paragraph");
+        xml.writeAttribute("style", Odf.STYLE, "wrap", "none");
+        xml.writeAttribute("style", Odf.STYLE, "vertical-pos", "top");
+        xml.writeAttribute("style", Odf.STYLE, "vertical-rel", "paragraph");
+        xml.writeAttribute("style", Odf.STYLE, "horizontal-pos", "center");
+        xml.writeAttribute("style", Odf.STYLE, "horizontal-rel", "paragraph");
+        xml.writeEndElement();
         xml.writeEndElement();
 
         xml.writeStartElement("office", "automatic-styles", Odf.OFFICE);
@@ -592,6 +700,9 @@ final class OdtWriter {
         xml.writeAttribute("manifest", Odf.MANIFEST, "version", Odf.VERSION);
         entry(xml, "/", Odf.MIME_TYPE, true);
         for (String file : List.of("content.xml", "styles.xml", "meta.xml")) entry(xml, file, "text/xml", false);
+        for (Map.Entry<String, String> picture : pictureTypes.entrySet()) {
+            entry(xml, picture.getKey(), picture.getValue(), false);
+        }
         xml.writeEndElement();
     }
 

@@ -5,6 +5,8 @@ final class Ooxml {
     static final String W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
     static final String R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
     static final String A = "http://schemas.openxmlformats.org/drawingml/2006/main";
+    static final String WP = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
+    static final String PIC = "http://schemas.openxmlformats.org/drawingml/2006/picture";
     static final String PACKAGE_RELATIONSHIPS = "http://schemas.openxmlformats.org/package/2006/relationships";
     static final String CONTENT_TYPES = "http://schemas.openxmlformats.org/package/2006/content-types";
     static final String XML = "http://www.w3.org/XML/1998/namespace";
@@ -14,6 +16,7 @@ final class Ooxml {
     static final String NUMBERING = R + "/numbering";
     static final String SETTINGS = R + "/settings";
     static final String THEME = R + "/theme";
+    static final String IMAGE = R + "/image";
 
     static final String MAIN_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml";
     static final String STYLES_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml";
@@ -32,5 +35,14 @@ final class Ooxml {
 
     static double points(int twips) {
         return twips / 20.0;
+    }
+
+    /** English Metric Units, as DrawingML stores lengths: 12700 to the point. */
+    static long emu(double points) {
+        return Math.round(points * 12700);
+    }
+
+    static double pointsFromEmu(long emu) {
+        return emu / 12700.0;
     }
 }

@@ -3,12 +3,14 @@ package eu.amadeos.apps.writepad.service.format.rtf;
 import eu.amadeos.apps.writepad.domain.DocumentSettings;
 import eu.amadeos.apps.writepad.domain.Margins;
 import eu.amadeos.apps.writepad.domain.Orientation;
+import eu.amadeos.apps.writepad.domain.Picture;
 import eu.amadeos.apps.writepad.domain.Units;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.Documents;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
 import eu.amadeos.apps.writepad.service.list.ListAttributes;
 import eu.amadeos.apps.writepad.service.list.ListFormat;
+import eu.amadeos.apps.writepad.service.picture.PictureAttributes;
 import eu.amadeos.commons.print.PaperSize;
 
 import javax.swing.text.BadLocationException;
@@ -32,9 +34,10 @@ import java.util.Set;
 /**
  * Reads RTF into a styled document: text, fonts, sizes, bold, italic, underline, strike-through,
  * super-/subscript, colours, alignment, indents, spacing, line spacing, tab stops, lists ({@code \listtable}
- * and WordPad's {@code \pn}) and the page setup. Everything else
- * (pictures, headers, footnotes, fields' instructions, style sheets, document info) is
- * skipped, so unknown content never breaks the import or appears as garbage.
+ * and WordPad's {@code \pn}), PNG and JPEG pictures ({@code \pict} in the line, {@code \shp} picture shapes
+ * floating at the left or right) and the page setup. Everything else (other picture formats, drawings,
+ * headers, footnotes, fields' instructions, style sheets, document info) is skipped, so unknown content never
+ * breaks the import or appears as garbage.
  *
  * <p>Handles the character sets RTF files use: the document code page ({@code \ansicpg}), per-font
  * charsets ({@code \fcharset}, including double-byte code pages), raw 8-bit bytes and Unicode
@@ -59,7 +62,37 @@ final class RtfReader {
             Map.entry(186, "windows-1257"), Map.entry(204, "windows-1251"), Map.entry(222, "x-windows-874"),
             Map.entry(238, "windows-1250"), Map.entry(255, "IBM437"));
 
-    private enum Destination { TEXT, FONT_TABLE, COLOR_TABLE, LIST_TABLE, LIST_OVERRIDES, PN, SKIP }
+    private enum Destination {
+        TEXT, FONT_TABLE, COLOR_TABLE, LIST_TABLE, LIST_OVERRIDES, PN,
+        /** In a shape ({@code \shp}, {@code \shpinst}) or a picture's {@code \picprop}: properties. */
+        SHAPE, SHAPE_NAME, SHAPE_VALUE, PICT, SKIP
+    }
+
+    /** A {@code \pict} being read: its image bytes (hex or {@code \bin}), sizes and properties. */
+    private static final class Pict {
+        final ByteArrayOutputStream data = new ByteArrayOutputStream();
+        int nibble = -1;
+        boolean supported;
+        int pixelWidth;
+        int pixelHeight;
+        int goalWidth;
+        int goalHeight;
+        int scaleX = 100;
+        int scaleY = 100;
+        final Map<String, String> properties = new HashMap<>();
+    }
+
+    /** A {@code \shp} being read: its bounds and wrapping in twips, its properties and its picture. */
+    private static final class Shape {
+        int left;
+        int right;
+        int top;
+        int bottom;
+        int wrap = -1;
+        int wrapSide = -1;
+        final Map<String, String> properties = new HashMap<>();
+        Pict pict;
+    }
 
     /** Formatting that RTF groups save and restore. */
     private static final class State implements Cloneable {
@@ -199,6 +232,13 @@ final class RtfReader {
         return new RtfReader(bytes).parse();
     }
 
+    // Pictures and shapes being read
+    private Shape shape;
+    private Pict pict;
+    private Map<String, String> properties;
+    private final StringBuilder propertyName = new StringBuilder();
+    private final StringBuilder propertyValue = new StringBuilder();
+
     private DocumentContent parse() throws IOException {
         skipWhitespace();
         if (!startsWith("{\\rtf")) throw new IOException("Not an RTF file");
@@ -324,6 +364,7 @@ final class RtfReader {
                 pnLevel = 0;
                 return;
             }
+            if (pictureGroup(word)) return;
             if (word.equals("fonttbl")) {
                 state.destination = Destination.FONT_TABLE;
                 return;
@@ -375,6 +416,11 @@ final class RtfReader {
                 }
             }
             case PN -> pnWord(word, parameter);
+            case SHAPE -> shapeWord(word, parameter);
+            case PICT -> pictWord(word, hasParameter, parameter);
+            case SHAPE_NAME, SHAPE_VALUE -> {
+                if (word.equals("u")) unicode(parameter);
+            }
             case TEXT -> textWord(word, hasParameter, parameter, on);
         }
     }
@@ -508,6 +554,9 @@ final class RtfReader {
         }
         if (inner.destination == Destination.TEXT && !stack.isEmpty() && differs(inner, stack.peek())) flushText();
         state = stack.isEmpty() ? new State() : stack.pop();
+        if (inner.destination == Destination.SHAPE || inner.destination == Destination.PICT) {
+            endPictureGroup(inner.destination);
+        }
         if (pnEnded) {
             // The group only describes the list: the paragraph around it is the list item.
             state.pnFormat = pnNumbered ? pnNumbering : ListFormat.BULLET;
@@ -517,6 +566,193 @@ final class RtfReader {
         ignorable = false;
         skipChars = 0;
     }
+
+    // ---------------------------------------------------------------- pictures
+
+    // --8<-- [start:pictures]
+    /**
+     * The first word of a group that belongs to a picture: {@code \shp} starts a shape, {@code \pict} a
+     * picture (in the text or as a shape's {@code pib} property); {@code \shppict} holds Word's picture
+     * (its {@code \nonshppict} twin, an old-style copy, is skipped). Other groups inside are skipped.
+     */
+    private boolean pictureGroup(String word) {
+        Destination d = state.destination;
+        if (d == Destination.TEXT && word.equals("shppict")) return true;
+        if (d == Destination.TEXT && word.equals("shp")) {
+            flushText();
+            shape = new Shape();
+            properties = shape.properties;
+            state.destination = Destination.SHAPE;
+            return true;
+        }
+        if (word.equals("pict") && (d == Destination.TEXT || d == Destination.SHAPE_VALUE)) {
+            flushText();
+            pict = new Pict();
+            state.destination = Destination.PICT;
+            return true;
+        }
+        if (d == Destination.PICT && word.equals("picprop")) {
+            properties = pict.properties;
+            state.destination = Destination.SHAPE;
+            return true;
+        }
+        if (d == Destination.SHAPE && (word.equals("shpinst") || word.equals("sp"))) {
+            propertyName.setLength(0);
+            propertyValue.setLength(0);
+            return true;
+        }
+        if (d == Destination.SHAPE && (word.equals("sn") || word.equals("sv"))) {
+            state.destination = word.equals("sn") ? Destination.SHAPE_NAME : Destination.SHAPE_VALUE;
+            return true;
+        }
+        if (d == Destination.SHAPE || d == Destination.SHAPE_NAME || d == Destination.SHAPE_VALUE
+                || d == Destination.PICT) {
+            state.destination = Destination.SKIP; // \shprslt, \shptxt, \blipuid and the like
+            return true;
+        }
+        return false;
+    }
+
+    private void shapeWord(String word, int parameter) {
+        if (shape == null) return;
+        switch (word) {
+            case "shpleft" -> shape.left = parameter;
+            case "shpright" -> shape.right = parameter;
+            case "shptop" -> shape.top = parameter;
+            case "shpbottom" -> shape.bottom = parameter;
+            case "shpwr" -> shape.wrap = parameter;
+            case "shpwrk" -> shape.wrapSide = parameter;
+            default -> {
+            }
+        }
+    }
+
+    private void pictWord(String word, boolean hasParameter, int parameter) {
+        switch (word) {
+            case "picw" -> pict.pixelWidth = parameter;
+            case "pich" -> pict.pixelHeight = parameter;
+            case "picwgoal" -> pict.goalWidth = parameter;
+            case "pichgoal" -> pict.goalHeight = parameter;
+            case "picscalex" -> pict.scaleX = parameter > 0 ? parameter : 100;
+            case "picscaley" -> pict.scaleY = parameter > 0 ? parameter : 100;
+            case "pngblip", "jpegblip" -> pict.supported = true;
+            case "bin" -> {
+                int n = hasParameter ? Math.max(0, Math.min(parameter, in.length - pos)) : 0;
+                pict.data.write(in, pos, n);
+                pos += n;
+            }
+            default -> {
+            }
+        }
+    }
+
+    private void pictHex(char c) {
+        int value = hex(c);
+        if (value < 0) return; // line ends and spaces between the digits
+        if (pict.nibble < 0) {
+            pict.nibble = value;
+        } else {
+            pict.data.write(pict.nibble * 16 + value);
+            pict.nibble = -1;
+        }
+    }
+
+    /** The end of a group of a picture or shape: a property, a picture or a whole shape is complete. */
+    private void endPictureGroup(Destination inner) {
+        Destination outer = state.destination;
+        if (inner == Destination.SHAPE && (outer == Destination.SHAPE || outer == Destination.PICT)) {
+            if (!propertyName.isEmpty() && properties != null) {
+                properties.put(propertyName.toString().strip(), propertyValue.toString().strip());
+            }
+            propertyName.setLength(0);
+            propertyValue.setLength(0);
+            return;
+        }
+        if (inner == Destination.PICT && outer != Destination.PICT && pict != null) {
+            Pict done = pict;
+            pict = null;
+            properties = shape != null ? shape.properties : null;
+            if (outer == Destination.SHAPE_VALUE && shape != null) shape.pict = done;
+            else if (outer == Destination.TEXT) insertPicture(inlinePicture(done));
+            return;
+        }
+        if (inner == Destination.SHAPE && outer == Destination.TEXT && shape != null) {
+            Shape done = shape;
+            shape = null;
+            properties = null;
+            insertPicture(shapePicture(done));
+        }
+    }
+
+    private Picture inlinePicture(Pict p) {
+        Picture picture = decode(p);
+        if (picture == null) return null;
+        Picture.Border border = border(p.properties);
+        double w = p.goalWidth > 0 ? Units.twipsToPoints(p.goalWidth) * p.scaleX / 100 : picture.width();
+        double h = p.goalHeight > 0 ? Units.twipsToPoints(p.goalHeight) * p.scaleY / 100 : w * picture.aspect();
+        return picture.withLayout(Math.max(2, w), Math.max(2, h), Picture.Placement.IN_LINE, border,
+                p.properties.getOrDefault("wzDescription", ""));
+    }
+
+    /**
+     * A picture shape: its bounds are the picture with its border. It floats if the text wraps around it
+     * (square, tight or through), at the right if it is positioned there or the text wraps only on its left.
+     */
+    private Picture shapePicture(Shape s) {
+        Pict p = s.pict;
+        if (p == null) return null;
+        Picture picture = inlinePicture(p);
+        if (picture == null) return null;
+        Map<String, String> props = new HashMap<>(p.properties);
+        props.putAll(s.properties);
+        Picture.Border border = border(props);
+        double frame = 2 * border.width();
+        double w = s.right > s.left ? Units.twipsToPoints(s.right - s.left) - frame : picture.width();
+        double h = s.bottom > s.top ? Units.twipsToPoints(s.bottom - s.top) - frame : picture.height();
+        Picture.Placement placement = Picture.Placement.IN_LINE;
+        if (s.wrap == 2 || s.wrap == 4 || s.wrap == 5) {
+            boolean right = "3".equals(props.get("posh")) || s.wrapSide == 1;
+            placement = right ? Picture.Placement.FLOAT_RIGHT : Picture.Placement.FLOAT_LEFT;
+        }
+        return picture.withLayout(Math.max(2, w), Math.max(2, h), placement, border,
+                props.getOrDefault("wzDescription", ""));
+    }
+
+    private static Picture decode(Pict p) {
+        if (!p.supported || p.data.size() == 0) return null;
+        try {
+            byte[] data = p.data.toByteArray();
+            return Picture.of(data, "image/jpeg".equals(Picture.mimeType(data)) ? "picture.jpg" : "picture.png");
+        } catch (IOException e) {
+            return null; // not an image Java can read
+        }
+    }
+
+    /** The border from shape properties: a line only if {@code fLine} is on, its width in EMU. */
+    private static Picture.Border border(Map<String, String> props) {
+        if (!"1".equals(props.get("fLine")) && !props.containsKey("lineWidth")) return Picture.Border.NONE;
+        if ("0".equals(props.get("fLine"))) return Picture.Border.NONE;
+        double points;
+        try {
+            points = Long.parseLong(props.getOrDefault("lineWidth", "9525")) / 12700.0;
+        } catch (NumberFormatException e) {
+            points = 0.75;
+        }
+        return points > 1.2 ? Picture.Border.THICK : Picture.Border.THIN;
+    }
+
+    private void insertPicture(Picture picture) {
+        if (picture == null) return;
+        flushBytes();
+        flushText();
+        try {
+            document.insertString(document.getLength(), String.valueOf(PictureAttributes.OBJECT),
+                    PictureAttributes.attributes(characterAttributes(state), picture));
+        } catch (BadLocationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+    // --8<-- [end:pictures]
 
     // ---------------------------------------------------------------- text
 
@@ -531,6 +767,8 @@ final class RtfReader {
         int code = value < 0 ? value + 65536 : value;
         if (state.destination == Destination.TEXT) addTextChar((char) code);
         else if (state.destination == Destination.FONT_TABLE) entryName.append((char) code);
+        else if (state.destination == Destination.SHAPE_NAME) propertyName.append((char) code);
+        else if (state.destination == Destination.SHAPE_VALUE) propertyValue.append((char) code);
         skipChars = state.unicodeSkip;
     }
 
@@ -579,7 +817,10 @@ final class RtfReader {
                     red = green = blue = -1;
                 }
             }
-            case SKIP -> {
+            case SHAPE_NAME -> propertyName.append(c);
+            case SHAPE_VALUE -> propertyValue.append(c);
+            case PICT -> pictHex(c);
+            default -> {
             }
         }
     }

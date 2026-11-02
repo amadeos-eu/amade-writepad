@@ -3,11 +3,13 @@ package eu.amadeos.apps.writepad.service.format.docx;
 import eu.amadeos.apps.writepad.domain.DocumentSettings;
 import eu.amadeos.apps.writepad.domain.Margins;
 import eu.amadeos.apps.writepad.domain.Orientation;
+import eu.amadeos.apps.writepad.domain.Picture;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.Documents;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
 import eu.amadeos.apps.writepad.service.list.ListAttributes;
 import eu.amadeos.apps.writepad.service.list.ListFormat;
+import eu.amadeos.apps.writepad.service.picture.PictureAttributes;
 import eu.amadeos.commons.print.PaperSize;
 
 import javax.swing.text.AttributeSet;
@@ -41,7 +43,8 @@ import java.util.zip.ZipInputStream;
  * indents come between a paragraph's style and its direct formatting. Theme fonts are looked up in the theme.
  * Lists become list attributes: paragraphs of the same numbering count together, a numbering with a restart
  * of its own counts separately. Tables give their paragraphs, fields their shown result, hyperlinks and
- * insertions their text; deletions, pictures, footnotes and comments are skipped.
+ * insertions their text; pictures in {@code w:drawing} become pictures, in the line or floating at the left or
+ * right; deletions, older VML pictures, footnotes and comments are skipped.
  */
 final class DocxReader {
     private static final XMLInputFactory XML = XMLInputFactory.newFactory();
@@ -109,6 +112,8 @@ final class DocxReader {
     private int nextListId = 1;
     private Map<String, String> pageSize;
     private Map<String, String> pageMargins;
+    /** The main part's image relationships: id to the image's path in the ZIP. */
+    private final Map<String, String> images = new HashMap<>();
 
     /** Text waiting to be inserted, all in the same format. */
     private final StringBuilder text = new StringBuilder();
@@ -136,7 +141,9 @@ final class DocxReader {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
                 String name = entry.getName();
-                if (name.endsWith(".xml") || name.endsWith(".rels")) files.put(name, zip.readAllBytes());
+                if (name.endsWith(".xml") || name.endsWith(".rels") || name.contains("media/") && !entry.isDirectory()) {
+                    files.put(name, zip.readAllBytes());
+                }
             }
         } catch (IllegalArgumentException e) {
             throw new IOException("Broken ZIP file", e);
@@ -159,6 +166,7 @@ final class DocxReader {
         if (styles != null && files.containsKey(styles)) styles(files.get(styles));
         String numbering = target(folder, rels, Ooxml.NUMBERING);
         if (numbering != null && files.containsKey(numbering)) numbering(files.get(numbering));
+        imageRelationships(folder, rels);
         document(body);
         removeTrailingParagraphEnd();
     }
@@ -176,6 +184,19 @@ final class DocxReader {
             }
         }
         return null;
+    }
+
+    private void imageRelationships(String folder, String relsPath) throws XMLStreamException {
+        byte[] rels = files.get(relsPath);
+        if (rels == null) return;
+        XMLStreamReader r = reader(rels);
+        while (r.hasNext()) {
+            if (r.next() == XMLStreamConstants.START_ELEMENT && r.getLocalName().equals("Relationship")
+                    && Ooxml.IMAGE.equals(r.getAttributeValue(null, "Type"))
+                    && !"External".equals(r.getAttributeValue(null, "TargetMode"))) {
+                images.put(r.getAttributeValue(null, "Id"), resolve(folder, r.getAttributeValue(null, "Target")));
+            }
+        }
     }
 
     private static String resolve(String folder, String target) {
@@ -638,6 +659,10 @@ final class DocxReader {
                     if (visible()) append("-", attributes[0]);
                     skip(r);
                 }
+                case "drawing" -> {
+                    if (visible()) drawing(r, attributes[0]);
+                    else skip(r);
+                }
                 case "fldChar" -> {
                     switch (val(r, "fldCharType") == null ? "" : val(r, "fldCharType")) {
                         case "begin" -> fields.push(false);
@@ -660,6 +685,98 @@ final class DocxReader {
         });
     }
 
+    // --8<-- [start:drawing]
+    /**
+     * A DrawingML picture: {@code wp:inline} in the line; {@code wp:anchor} with text wrapping beside it floats
+     * at the side it is aligned to (or the side the text does not wrap to), an anchor without wrapping beside
+     * it goes in the line. The extent is the picture's size with its border, which {@code a:ln} gives.
+     */
+    private void drawing(XMLStreamReader r, AttributeSet around) throws XMLStreamException {
+        long cx = -1;
+        long cy = -1;
+        boolean anchor = false;
+        String wrap = null;
+        String wrapText = null;
+        String align = null;
+        String description = "";
+        String title = "";
+        String embed = null;
+        long line = -1;
+        boolean noLine = false;
+        String parent = "";
+        Deque<String> path = new ArrayDeque<>();
+        int depth = 1;
+        while (depth > 0 && r.hasNext()) {
+            int event = r.next();
+            if (event == XMLStreamConstants.START_ELEMENT) {
+                depth++;
+                String name = r.getLocalName();
+                parent = path.isEmpty() ? "" : path.peek();
+                path.push(name);
+                switch (name) {
+                    case "anchor" -> anchor = true;
+                    case "extent" -> {
+                        cx = number(r.getAttributeValue(null, "cx"), -1);
+                        cy = number(r.getAttributeValue(null, "cy"), -1);
+                    }
+                    case "wrapSquare", "wrapTight", "wrapThrough", "wrapTopAndBottom", "wrapNone" -> {
+                        wrap = name;
+                        wrapText = r.getAttributeValue(null, "wrapText");
+                    }
+                    case "align" -> {
+                        String text = r.getElementText().strip(); // reads up to the end tag
+                        if (parent.equals("positionH")) align = text;
+                        path.pop();
+                        depth--;
+                    }
+                    case "docPr" -> {
+                        description = nonNull(r.getAttributeValue(null, "descr")).strip();
+                        title = nonNull(r.getAttributeValue(null, "title")).strip();
+                    }
+                    case "blip" -> embed = r.getAttributeValue(Ooxml.R, "embed");
+                    case "ln" -> {
+                        if (parent.equals("spPr")) line = number(r.getAttributeValue(null, "w"), 9525);
+                    }
+                    case "noFill" -> {
+                        if (parent.equals("ln")) noLine = true;
+                    }
+                    default -> {
+                    }
+                }
+            } else if (event == XMLStreamConstants.END_ELEMENT) {
+                depth--;
+                if (!path.isEmpty()) path.pop();
+            }
+        }
+        String file = embed == null ? null : images.get(embed);
+        byte[] data = file == null ? null : files.get(file);
+        if (data == null) return;
+        Picture picture;
+        try {
+            picture = Picture.of(data, file.substring(file.lastIndexOf('/') + 1));
+        } catch (IOException e) {
+            return; // an image Java cannot read (EMF, SVG): left out as before
+        }
+        Picture.Border border = line < 0 || noLine ? Picture.Border.NONE
+                : Ooxml.pointsFromEmu(line) > 1.2 ? Picture.Border.THICK : Picture.Border.THIN;
+        double frame = 2 * border.width();
+        double w = cx > 0 ? Math.max(2, Ooxml.pointsFromEmu(cx) - frame) : picture.width();
+        double h = cy > 0 ? Math.max(2, Ooxml.pointsFromEmu(cy) - frame) : w * picture.aspect();
+        Picture.Placement placement = Picture.Placement.IN_LINE;
+        if (anchor && wrap != null && !wrap.equals("wrapTopAndBottom") && !wrap.equals("wrapNone")) {
+            boolean right = "right".equals(align) || "outside".equals(align) || "left".equals(wrapText);
+            placement = right ? Picture.Placement.FLOAT_RIGHT : Picture.Placement.FLOAT_LEFT;
+        }
+        flushText();
+        insert(String.valueOf(PictureAttributes.OBJECT), PictureAttributes.attributes(around,
+                picture.withLayout(w, h, placement, border, description.isEmpty() ? title : description)));
+    }
+    // --8<-- [end:drawing]
+
+    private static String nonNull(String s) {
+        return s == null ? "" : s;
+    }
+
     /** False inside the code of a field, where text is the field's instruction, not what it shows. */
     private boolean visible() {
         for (boolean shown : fields) {
@@ -672,7 +789,7 @@ final class DocxReader {
         StringBuilder clean = new StringBuilder(s.length());
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
-            if (c == '\n' || c == '\r') continue;
+            if (c == '\n' || c == '\r' || c == PictureAttributes.OBJECT) continue;
             clean.append(c);
         }
         if (clean.isEmpty()) return;

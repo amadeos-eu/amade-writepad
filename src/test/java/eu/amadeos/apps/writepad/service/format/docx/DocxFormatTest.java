@@ -6,6 +6,7 @@ import eu.amadeos.apps.writepad.domain.Orientation;
 import eu.amadeos.apps.writepad.domain.Units;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.Documents;
+import eu.amadeos.apps.writepad.service.format.PictureSamples;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
 import eu.amadeos.apps.writepad.service.format.odt.OdtFormat;
 import eu.amadeos.apps.writepad.service.list.ListAttributes;
@@ -415,6 +416,24 @@ class DocxFormatTest {
         assertEquals(0f, StyleConstants.getLeftIndent(paragraphAt(c, "direct")), 0.01, "direct indent wins");
         assertEquals(72f, StyleConstants.getLeftIndent(c.document().getDefaultRootElement().getElement(5)
                 .getAttributes()), 0.01, "a level without numbers keeps its indent");
+    }
+
+    @Test
+    void keepsPictures() throws IOException {
+        byte[] docx = format.write(PictureSamples.document());
+        Map<String, byte[]> files = unzip(docx);
+        assertTrue(files.containsKey("word/media/image1.png"), files.keySet().toString());
+        assertTrue(part(docx, "[Content_Types].xml").contains("Extension=\"png\""));
+        assertTrue(part(docx, "word/_rels/document.xml.rels").contains("media/image2.png"));
+        String body = part(docx, "word/document.xml");
+        assertTrue(body.contains("wp:inline") && body.contains("wp:anchor") && body.contains("wrapText=\"right\""), body);
+        PictureSamples.check(format.read(docx), true, true);
+    }
+
+    /** LibreOffice 24.2 opened the ODT amade-writepad wrote and saved it as DOCX. */
+    @Test
+    void readsPicturesLibreOfficeWrote() throws IOException {
+        PictureSamples.check(fixture("libreoffice-pictures.docx"), true, true);
     }
 
     private static String item(int numId, int level) {

@@ -6,6 +6,7 @@ import eu.amadeos.apps.writepad.domain.Orientation;
 import eu.amadeos.apps.writepad.domain.Units;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.Documents;
+import eu.amadeos.apps.writepad.service.format.PictureSamples;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
 import eu.amadeos.apps.writepad.service.list.ListAttributes;
 import eu.amadeos.apps.writepad.service.list.ListFormat;
@@ -349,6 +350,22 @@ class OdtFormatTest {
                 + "</table:table><text:h text:outline-level=\"1\">Heading</text:h>"
                 + "</office:text></office:body>"));
         assertEquals("See the link, page 3.\nA1\nB1\nHeading", text(c));
+    }
+
+    @Test
+    void keepsPictures() throws IOException {
+        byte[] odt = format.write(PictureSamples.document());
+        Map<String, byte[]> files = unzip(odt);
+        assertTrue(files.containsKey("Pictures/1.png"), files.keySet().toString());
+        String manifest = new String(files.get("META-INF/manifest.xml"), StandardCharsets.UTF_8);
+        assertTrue(manifest.contains("Pictures/2.png"), manifest);
+        PictureSamples.check(format.read(odt), true, true);
+    }
+
+    /** LibreOffice 24.2 opened what amade-writepad wrote and saved it again. */
+    @Test
+    void readsPicturesLibreOfficeWrote() throws IOException {
+        PictureSamples.check(fixture("libreoffice-pictures.odt"), true, true);
     }
 
     @Test

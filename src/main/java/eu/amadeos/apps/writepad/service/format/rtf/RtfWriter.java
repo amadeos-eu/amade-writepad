@@ -3,12 +3,15 @@ package eu.amadeos.apps.writepad.service.format.rtf;
 import eu.amadeos.apps.writepad.domain.DocumentSettings;
 import eu.amadeos.apps.writepad.domain.Margins;
 import eu.amadeos.apps.writepad.domain.Orientation;
+import eu.amadeos.apps.writepad.domain.Picture;
 import eu.amadeos.apps.writepad.domain.Units;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
 import eu.amadeos.apps.writepad.service.list.ListAttributes;
 import eu.amadeos.apps.writepad.service.list.ListFormat;
+import eu.amadeos.apps.writepad.service.layout.FloatingPicture;
 import eu.amadeos.apps.writepad.service.list.ListNumbering;
+import eu.amadeos.apps.writepad.service.picture.PictureAttributes;
 
 import javax.swing.text.AttributeSet;
 import javax.swing.text.BadLocationException;
@@ -18,6 +21,10 @@ import javax.swing.text.StyledDocument;
 import javax.swing.text.TabSet;
 import javax.swing.text.TabStop;
 import java.awt.Color;
+import java.awt.image.BufferedImage;
+import javax.imageio.ImageIO;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.CharacterCodingException;
@@ -35,7 +42,8 @@ import java.util.Objects;
  * Writes a styled document as RTF that WordPad, Word and LibreOffice read: Windows-1252 characters as
  * {@code \'hh}, all others as <code>&#92;u</code> with a {@code ?} fallback, one group per run of equally formatted
  * text and a {@code \pard} per paragraph. Paragraphs are separated by {@code \par}, so reading the file
- * gives the same paragraphs back.
+ * gives the same paragraphs back. Pictures are PNG or JPEG in {@code \pict}, floating ones in a picture
+ * shape ({@code \shp}) with the text wrapping on the other side.
  */
 final class RtfWriter {
     private static final Charset ANSI = Charset.forName("windows-1252");
@@ -48,6 +56,7 @@ final class RtfWriter {
     private final Map<Integer, Integer> listNumbers = new LinkedHashMap<>();
     private final Map<Integer, ListFormat[]> listLevels = new LinkedHashMap<>();
     private final StringBuilder body = new StringBuilder();
+    private int shapes;
     private final CharsetEncoder ansi = ANSI.newEncoder();
 
     private RtfWriter(DocumentContent content) {
@@ -148,7 +157,9 @@ final class RtfWriter {
             }
             if (text.endsWith("\n")) text = text.substring(0, text.length() - 1);
             if (text.isEmpty()) continue;
-            run(run.getAttributes(), text);
+            Picture picture = PictureAttributes.picture(run.getAttributes());
+            if (picture != null) picture(picture);
+            else run(run.getAttributes(), text);
         }
     }
 
@@ -168,6 +179,98 @@ final class RtfWriter {
         text(body, text);
         body.append('}');
     }
+
+    // --8<-- [start:pictures]
+    /**
+     * A picture: in the line a {@code \pict}, floating a picture shape positioned at the left or right of the
+     * column, its bounds being the picture with its border. GIF images are written as PNG, which RTF knows.
+     */
+    private void picture(Picture picture) {
+        int shapeId = ++shapes;
+        if (!picture.placement().floats()) {
+            pict(picture, true);
+            return;
+        }
+        boolean left = picture.placement() == Picture.Placement.FLOAT_LEFT;
+        double frame = 2 * picture.border().width();
+        body.append("{\\shp{\\*\\shpinst\\shpleft0\\shptop0\\shpright")
+                .append(Units.pointsToTwips(picture.width() + frame))
+                .append("\\shpbottom").append(Units.pointsToTwips(picture.height() + frame))
+                .append("\\shpfhdr0\\shpbxcolumn\\shpbxignore\\shpbypara\\shpbyignore\\shpwr2\\shpwrk")
+                .append(left ? 2 : 1).append("\\shpfblwtxt0\\shpz").append(shapeId).append("\\shplid")
+                .append(1024 + shapeId).append('\n');
+        property("shapeType", "75");
+        property("posh", left ? "1" : "3");
+        property("posrelh", "2");
+        property("posv", "0");
+        property("posrelv", "2");
+        property(left ? "dxWrapDistRight" : "dxWrapDistLeft", String.valueOf(emu(FloatingPicture.SIDE_GAP)));
+        property("dyWrapDistBottom", String.valueOf(emu(FloatingPicture.GAP_BELOW)));
+        lineProperties(picture);
+        if (!picture.description().isEmpty()) property("wzDescription", picture.description());
+        body.append("{\\sp{\\sn pib}{\\sv ");
+        pict(picture, false);
+        body.append("}}}}\n");
+    }
+
+    /** A {@code \pict} with the image in hex; {@code withProperties}: its description and border with it. */
+    private void pict(Picture picture, boolean withProperties) {
+        byte[] data = picture.data();
+        String blip = "\\pngblip";
+        if (picture.mimeType().equals("image/jpeg")) {
+            blip = "\\jpegblip";
+        } else if (!picture.mimeType().equals("image/png")) {
+            data = png(picture.image());
+            if (data == null) return;
+        }
+        body.append("{\\pict");
+        if (withProperties && (!picture.description().isEmpty() || picture.border() != Picture.Border.NONE)) {
+            body.append("{\\*\\picprop");
+            lineProperties(picture);
+            if (!picture.description().isEmpty()) property("wzDescription", picture.description());
+            body.append('}');
+        }
+        body.append("\\picscalex100\\picscaley100\\picw").append(picture.pixelWidth())
+                .append("\\pich").append(picture.pixelHeight())
+                .append("\\picwgoal").append(Units.pointsToTwips(picture.width()))
+                .append("\\pichgoal").append(Units.pointsToTwips(picture.height()))
+                .append(blip).append('\n');
+        for (int i = 0; i < data.length; i++) {
+            body.append(Character.forDigit((data[i] >> 4) & 0xF, 16)).append(Character.forDigit(data[i] & 0xF, 16));
+            if (i % 64 == 63) body.append('\n');
+        }
+        body.append('}');
+    }
+
+    private void lineProperties(Picture picture) {
+        if (picture.border() == Picture.Border.NONE) {
+            property("fLine", "0");
+        } else {
+            property("fLine", "1");
+            property("lineWidth", String.valueOf(emu(picture.border().width())));
+        }
+    }
+
+    private void property(String name, String value) {
+        body.append("{\\sp{\\sn ").append(name).append("}{\\sv ");
+        text(body, value);
+        body.append("}}");
+    }
+
+    private static long emu(double points) {
+        return Math.round(points * 12700);
+    }
+
+    private static byte[] png(BufferedImage image) {
+        if (image == null) return null;
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try {
+            return ImageIO.write(image, "png", out) ? out.toByteArray() : null;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+    // --8<-- [end:pictures]
 
     /**
      * The RTF font family, so that a program without the font (Word does not know Java's "Serif") picks a
@@ -279,6 +382,9 @@ final class RtfWriter {
                 case '\t' -> out.append("\\tab ");
                 case '\n' -> out.append("\\par\n");
                 case WritepadDocument.LINE_BREAK -> out.append("\\line ");
+                case PictureAttributes.OBJECT -> {
+                    // a picture's stand-in: the picture is written on its own
+                }
                 case '\u00A0' -> out.append("\\~");
                 default -> {
                     if (cp >= 0x20 && cp < 0x7F) {
