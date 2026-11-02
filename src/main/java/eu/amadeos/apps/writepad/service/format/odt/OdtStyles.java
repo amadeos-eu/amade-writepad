@@ -28,6 +28,8 @@ final class OdtStyles {
         /** Tab stops if the style defines them, else null (inherited). */
         List<Tab> tabs;
         String listStyle;
+        /** {@code style:display-name}, null if not given. */
+        String displayName;
 
         Style(String name, String parent) {
             this.name = name;
@@ -98,6 +100,26 @@ final class OdtStyles {
         if (name == null) return null;
         Style style = automatic.get(family + ":" + name);
         return style != null ? style : common.get(family + ":" + name);
+    }
+
+    /**
+     * The built-in style a paragraph style stands for, with the name of the file's style that matched: the
+     * automatic style's parent, or its parent, ... that has a known name ({@code Heading_20_1}). Null if
+     * none has one.
+     */
+    Map.Entry<eu.amadeos.apps.writepad.service.style.ParagraphStyle, String> named(String name) {
+        Style style = find("paragraph", name);
+        for (int guard = 0; style != null && guard < 32; guard++) {
+            if (common.get("paragraph:" + style.name) == style) {
+                var known = eu.amadeos.apps.writepad.service.style.ParagraphStyle.forName(style.name);
+                if (known.isEmpty() && style.displayName != null) {
+                    known = eu.amadeos.apps.writepad.service.style.ParagraphStyle.forName(style.displayName);
+                }
+                if (known.isPresent()) return Map.entry(known.get(), style.name);
+            }
+            style = find("paragraph", style.parent);
+        }
+        return null;
     }
 
     /** A paragraph style with everything it inherits, starting from the default style. */

@@ -1,5 +1,7 @@
 package eu.amadeos.apps.writepad.service.format;
 
+import eu.amadeos.apps.writepad.service.style.ParagraphStyles;
+
 import javax.swing.text.DefaultStyledDocument;
 import javax.swing.text.Style;
 import javax.swing.text.StyleConstants;
@@ -15,12 +17,13 @@ public final class Documents {
     private Documents() {
     }
 
-    /** An empty document whose base style uses the default font. */
+    /** An empty document whose base style uses the default font, with the paragraph styles, in Normal. */
     public static StyledDocument newDocument() {
         DefaultStyledDocument document = new WritepadDocument();
         Style base = document.getStyle(StyleContext.DEFAULT_STYLE);
         StyleConstants.setFontFamily(base, DEFAULT_FAMILY);
         StyleConstants.setFontSize(base, DEFAULT_SIZE);
+        ParagraphStyles.install(document);
         return document;
     }
 }

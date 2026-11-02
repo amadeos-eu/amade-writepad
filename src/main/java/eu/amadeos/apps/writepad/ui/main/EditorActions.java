@@ -1,5 +1,8 @@
 package eu.amadeos.apps.writepad.ui.main;
 
+import eu.amadeos.apps.writepad.service.style.StyleEdit;
+import eu.amadeos.apps.writepad.service.style.ParagraphStyles;
+import eu.amadeos.apps.writepad.service.style.ParagraphStyle;
 import eu.amadeos.apps.writepad.domain.Picture;
 import eu.amadeos.apps.writepad.domain.TableFormat;
 import eu.amadeos.apps.writepad.service.table.TableAttributes;
@@ -31,6 +34,7 @@ import javax.swing.InputMap;
 import javax.swing.JComponent;
 import javax.swing.JColorChooser;
 import javax.swing.KeyStroke;
+import javax.swing.text.AttributeSet;
 import javax.swing.text.DefaultEditorKit;
 import javax.swing.text.Element;
 import javax.swing.text.StyleConstants;
@@ -44,6 +48,8 @@ import java.awt.Color;
 import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import java.util.EnumMap;
+import java.util.Map;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -122,6 +128,10 @@ public final class EditorActions {
     public final Action selectTable;
     public final Action cellBackground;
     public final Action tableProperties;
+    /** One action per paragraph style: the Format menu's Paragraph Style items and their keys. */
+    public final Map<ParagraphStyle, Action> paragraphStyles = new EnumMap<>(ParagraphStyle.class);
+    public final Action styles;
+    public final Action clearFormatting;
     private final List<Action> tableOnly = new ArrayList<>();
     /** Edits collected into one undo step while {@link #apply} runs. */
     private CompoundEdit group;
@@ -168,6 +178,16 @@ public final class EditorActions {
         }
 
         default Optional<CellBackgroundDialog.Choice> cellBackground(Color current) {
+            return Optional.empty();
+        }
+
+        /**
+         * Format → Styles: the definitions of all styles; {@code atCaret} is the paragraph style shown first,
+         * {@code caretLook} the formatting at the caret (for Match Selection). The result has the styles to
+         * change.
+         */
+        default Optional<Map<ParagraphStyle, AttributeSet>> styles(Map<ParagraphStyle, AttributeSet> current,
+                                                                  ParagraphStyle atCaret, AttributeSet caretLook) {
             return Optional.empty();
         }
     }
@@ -255,6 +275,22 @@ public final class EditorActions {
                 e -> cellBackgroundDialog());
         tableProperties = action("menu.table.properties", "tip.table.properties", null, 0,
                 e -> tablePropertiesDialog());
+        // --8<-- [start:style-actions]
+        for (ParagraphStyle style : ParagraphStyle.values()) {
+            Action a = action(style.messageKey(), "tip.paragraph-style", null, 0, e -> applyStyle(style));
+            // Ctrl+0 Normal, Ctrl+1 to Ctrl+6 the headings, as in LibreOffice.
+            int digit = style == ParagraphStyle.NORMAL ? 0 : style.outlineLevel();
+            if (style == ParagraphStyle.NORMAL || style.isHeading()) {
+                a.putValue(Action.ACCELERATOR_KEY, KeyStroke.getKeyStroke(KeyEvent.VK_0 + digit, CTRL));
+            }
+            a.putValue(Action.SELECTED_KEY, false);
+            paragraphStyles.put(style, a);
+        }
+        styles = action("menu.format.styles", "tip.styles", null, 0, e -> stylesDialog());
+        styles.putValue(Action.ACCELERATOR_KEY, KeyStroke.getKeyStroke(KeyEvent.VK_F11, 0));
+        clearFormatting = action("menu.format.clear-formatting", "tip.clear-formatting", null, KeyEvent.VK_M,
+                e -> edit(formatting::clearDirectFormatting));
+        // --8<-- [end:style-actions]
         tableOnly.addAll(List.of(insertRowAbove, insertRowBelow, insertColumnLeft, insertColumnRight, deleteRow,
                 deleteColumn, deleteTable, selectRow, selectTable, cellBackground, tableProperties));
         installListKeys();
@@ -287,8 +323,17 @@ public final class EditorActions {
                 });
         listKey(keys, actions, KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "writepad-enter", insertBreak, () -> {
             if (paragraphAboveTable()) return true;
-            if (!formatting.isListItem() || !emptyParagraph()) return false;
-            edit(() -> formatting.endListAtCaret(false));
+            if (formatting.isListItem() && emptyParagraph()) {
+                edit(() -> formatting.endListAtCaret(false));
+                return true;
+            }
+            // Enter at the end of a heading: the next paragraph is Normal.
+            ParagraphStyle style = formatting.style();
+            if (style.next() == style || !atParagraphEnd()) return false;
+            edit(() -> {
+                editor.replaceSelection("\n");
+                formatting.continueWithNextStyle(style);
+            });
             return true;
         });
         listKey(keys, actions, KeyStroke.getKeyStroke(KeyEvent.VK_BACK_SPACE, 0), "writepad-backspace",
@@ -330,6 +375,12 @@ public final class EditorActions {
                 && editor.getStyledDocument().getParagraphElement(caret).getStartOffset() == caret;
     }
 
+    private boolean atParagraphEnd() {
+        int caret = editor.getCaretPosition();
+        return editor.getSelectionStart() == editor.getSelectionEnd()
+                && editor.getStyledDocument().getParagraphElement(caret).getEndOffset() - 1 == caret;
+    }
+
     private boolean severalParagraphs() {
         return formatting.selectedParagraphs().size() > 1;
     }
@@ -351,6 +402,30 @@ public final class EditorActions {
             formatting.setSpacing(values.spacing());
             formatting.setAlignment(values.alignment());
         }));
+    }
+
+    /** Gives the selected paragraphs a style, as one undo step. */
+    public void applyStyle(ParagraphStyle style) {
+        edit(() -> formatting.setStyle(style));
+    }
+
+    // --8<-- [start:styles-dialog]
+    /** Format → Styles: the changed definitions apply to every paragraph in those styles, as one undo step. */
+    public void stylesDialog() {
+        StyledDocument doc = editor.getStyledDocument();
+        dialogs.styles(ParagraphStyles.definitions(doc), formatting.style(), caretLook()).ifPresent(changed -> {
+            if (!(doc instanceof WritepadDocument writepad)) return;
+            edit(() -> {
+                StyleEdit change = StyleEdit.define(doc, changed);
+                if (change != null) writepad.postEdit(change);
+            });
+        });
+    }
+    // --8<-- [end:styles-dialog]
+
+    /** The formatting at the caret: that of the text there, resolved through its paragraph and style. */
+    private AttributeSet caretLook() {
+        return ParagraphStyles.complete(formatting.characterAttributes());
     }
 
     private void tabsDialog() {
@@ -624,6 +699,8 @@ public final class EditorActions {
         alignCenter.putValue(Action.SELECTED_KEY, state.alignment() == StyleConstants.ALIGN_CENTER);
         alignRight.putValue(Action.SELECTED_KEY, state.alignment() == StyleConstants.ALIGN_RIGHT);
         alignJustify.putValue(Action.SELECTED_KEY, state.alignment() == StyleConstants.ALIGN_JUSTIFIED);
+        ParagraphStyle current = formatting.style();
+        paragraphStyles.forEach((style, a) -> a.putValue(Action.SELECTED_KEY, style == current));
         Optional<ListFormat> list = formatting.listFormat();
         bullets.putValue(Action.SELECTED_KEY, list.map(ListFormat::isBullet).orElse(false));
         numbering.putValue(Action.SELECTED_KEY, list.map(f -> !f.isBullet()).orElse(false));

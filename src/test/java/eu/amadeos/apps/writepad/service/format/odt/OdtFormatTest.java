@@ -1,5 +1,6 @@
 package eu.amadeos.apps.writepad.service.format.odt;
 
+import eu.amadeos.apps.writepad.service.format.StyleSamples;
 import eu.amadeos.apps.writepad.domain.DocumentSettings;
 import eu.amadeos.apps.writepad.domain.Margins;
 import eu.amadeos.apps.writepad.domain.Orientation;
@@ -417,5 +418,28 @@ class OdtFormatTest {
         Tables.Table t = TableSamples.table(c);
         assertEquals("wide||c/a|in1~in2|", TableSamples.grid(c.document(), t));
         assertEquals(3, t.format().columns());
+    }
+
+    @Test
+    void keepsParagraphStyles() throws IOException {
+        StyleSamples.check(format.read(format.write(StyleSamples.document())));
+    }
+
+    @Test
+    void writesHeadingsAsLibreOfficeDoes() throws IOException {
+        byte[] odt = format.write(StyleSamples.document());
+        String content = content(odt);
+        assertTrue(content.contains("text:outline-level=\"1\""), content);
+        assertTrue(content.contains("<text:h"), content);
+        assertTrue(content.contains("style:parent-style-name=\"Heading_20_2\""), content);
+        String styles = new String(unzip(odt).get("styles.xml"), StandardCharsets.UTF_8);
+        assertTrue(styles.contains("style:name=\"Heading_20_1\" style:display-name=\"Heading 1\""), styles);
+        assertTrue(styles.contains("style:default-outline-level=\"1\""), styles);
+        assertTrue(styles.contains("style:name=\"Quotations\""), styles);
+    }
+
+    @Test
+    void readsLibreOfficeStyles() throws IOException {
+        StyleSamples.checkLibreOffice(fixture("styles.odt"));
     }
 }

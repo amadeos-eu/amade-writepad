@@ -8,6 +8,8 @@ import eu.amadeos.apps.writepad.domain.TableFormat;
 import eu.amadeos.apps.writepad.domain.Units;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.Documents;
+import eu.amadeos.apps.writepad.service.style.ParagraphStyle;
+import eu.amadeos.apps.writepad.service.style.ParagraphStyles;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
 import eu.amadeos.apps.writepad.service.list.ListAttributes;
 import eu.amadeos.apps.writepad.service.list.ListFormat;
@@ -18,6 +20,7 @@ import eu.amadeos.apps.writepad.service.table.TableLines;
 import eu.amadeos.apps.writepad.service.table.Tables;
 import eu.amadeos.commons.print.PaperSize;
 
+import javax.swing.text.AttributeSet;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.SimpleAttributeSet;
 import javax.swing.text.StyleConstants;
@@ -31,6 +34,7 @@ import java.nio.charset.Charset;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -52,7 +56,7 @@ import java.util.Set;
 final class RtfReader {
     /** Destinations whose content is not text of the document. */
     private static final Set<String> SKIPPED = Set.of(
-            "stylesheet", "info", "pict", "header", "headerl", "headerr", "headerf", "footer", "footerl",
+            "info", "pict", "header", "headerl", "headerr", "headerf", "footer", "footerl",
             "footerr", "footerf", "footnote", "annotation", "object", "nonshppict", "shppict", "rsidtbl", "generator", "xmlnstbl", "themedata", "colorschememapping",
             "latentstyles", "datastore", "pntext", "pntxta", "pntxtb", "fldinst", "bkmkstart", "bkmkend",
             "mmathPr", "upr", "filetbl", "revtbl", "protusertbl", "listtext", "userprops", "docvar", "template",
@@ -70,7 +74,7 @@ final class RtfReader {
             Map.entry(238, "windows-1250"), Map.entry(255, "IBM437"));
 
     private enum Destination {
-        TEXT, FONT_TABLE, COLOR_TABLE, LIST_TABLE, LIST_OVERRIDES, PN,
+        TEXT, FONT_TABLE, COLOR_TABLE, LIST_TABLE, LIST_OVERRIDES, PN, STYLESHEET,
         /** In a shape ({@code \shp}, {@code \shpinst}) or a picture's {@code \picprop}: properties. */
         SHAPE, SHAPE_NAME, SHAPE_VALUE, PICT, SKIP
     }
@@ -133,6 +137,8 @@ final class RtfReader {
         int pnLevel;
         /** {@code \intbl}: the paragraph is in a table's cell. */
         boolean inTable;
+        /** {@code \s}: the paragraph's style in the style sheet. */
+        int style;
 
         @Override
         public State clone() {
@@ -161,6 +167,7 @@ final class RtfReader {
             listOverride = listLevel = pnLevel = 0;
             pnFormat = null;
             inTable = false;
+            style = 0;
         }
 
         /** {@code \tx} or {@code \tb}: a stop with the alignment and leader given just before it. */
@@ -228,6 +235,17 @@ final class RtfReader {
     private final Deque<State> stack = new ArrayDeque<>();
     private State state = new State();
     private final Map<Integer, FontEntry> fonts = new HashMap<>();
+    private final ParagraphStyles.Collector collector = new ParagraphStyles.Collector(document);
+    /** The style sheet's paragraph styles by number: name and formatting. */
+    private final Map<Integer, StyleEntry> stylesheet = new HashMap<>();
+    /** The style sheet entry each built-in style was found under. */
+    private final Map<ParagraphStyle, Integer> styleNumbers = new EnumMap<>(ParagraphStyle.class);
+    private final StringBuilder styleName = new StringBuilder();
+    /** The number of the style sheet entry being read; -1 for a character or table style. */
+    private int entryStyle;
+
+    private record StyleEntry(String name, State format) {
+    }
     private final List<Color> colors = new ArrayList<>();
     private Charset codepage = Charset.forName("windows-1252");
     private int defaultFont;
@@ -333,6 +351,7 @@ final class RtfReader {
             endTable();
         }
         removeTrailingEmptyParagraph();
+        adoptStyles();
         return new DocumentContent(document, settings());
     }
 
@@ -429,6 +448,10 @@ final class RtfReader {
                 state.destination = Destination.COLOR_TABLE;
                 return;
             }
+            if (word.equals("stylesheet")) {
+                state.destination = Destination.STYLESHEET;
+                return;
+            }
             if (SKIPPED.contains(word) || (ignorable && !word.equals("fldrslt"))) {
                 flushText();
                 state.destination = Destination.SKIP;
@@ -472,6 +495,7 @@ final class RtfReader {
                 }
             }
             case PN -> pnWord(word, parameter);
+            case STYLESHEET -> stylesheetWord(word, hasParameter, parameter, on);
             case SHAPE -> shapeWord(word, parameter);
             case PICT -> pictWord(word, hasParameter, parameter);
             case SHAPE_NAME, SHAPE_VALUE -> {
@@ -594,6 +618,7 @@ final class RtfReader {
             case "intbl" -> state.inTable = true;
             case "itap" -> state.inTable = parameter > 0;
             case "ls" -> state.listOverride = parameter;
+            case "s" -> state.style = parameter;
             case "ilvl" -> state.listLevel = Math.max(0, Math.min(ListAttributes.MAX_LEVEL, parameter));
             default -> tableWord(word, hasParameter, parameter);
         }
@@ -947,6 +972,57 @@ final class RtfReader {
     }
     // --8<-- [end:pictures]
 
+    // ---------------------------------------------------------------- style sheet
+
+    // --8<-- [start:stylesheet]
+    /** The words that matter in a style sheet entry: its number and its formatting. */
+    private static final Set<String> STYLE_FORMATTING = Set.of("plain", "f", "fs", "b", "i", "strike", "ul",
+            "ulnone", "super", "sub", "nosupersub", "cf", "ql", "qc", "qr", "qj", "li", "lin", "ri", "rin", "fi",
+            "sb", "sa", "sl", "slmult");
+
+    private void stylesheetWord(String word, boolean hasParameter, int parameter, boolean on) {
+        switch (word) {
+            case "s" -> entryStyle = parameter;
+            case "cs", "ds", "ts", "tsrowd" -> entryStyle = -1;
+            default -> {
+                if (STYLE_FORMATTING.contains(word)) textWord(word, hasParameter, parameter, on);
+            }
+        }
+    }
+
+    /** The end of a style sheet entry: its name ends with a semicolon. */
+    private void addStyle() {
+        String name = styleName.toString().strip();
+        if (entryStyle >= 0 && !name.isEmpty()) stylesheet.putIfAbsent(entryStyle, new StyleEntry(name, state.clone()));
+        styleName.setLength(0);
+        entryStyle = 0;
+    }
+
+    /** The built-in style a paragraph's {@code \s} stands for, by the entry's name; Normal if unknown. */
+    private ParagraphStyle builtInStyle(int number) {
+        StyleEntry entry = stylesheet.get(number);
+        ParagraphStyle style = entry == null ? ParagraphStyle.NORMAL
+                : ParagraphStyle.forName(entry.name()).orElse(ParagraphStyle.NORMAL);
+        if (entry != null && ParagraphStyle.forName(entry.name()).isPresent()) styleNumbers.putIfAbsent(style, number);
+        return style;
+    }
+
+    /** The styles get the style sheet's formatting, the paragraphs their styles. */
+    private void adoptStyles() {
+        if (stylesheet.containsKey(0)) styleNumbers.putIfAbsent(ParagraphStyle.NORMAL, 0);
+        Map<ParagraphStyle, AttributeSet> definitions = new EnumMap<>(ParagraphStyle.class);
+        styleNumbers.forEach((style, number) -> {
+            State format = stylesheet.get(number).format().clone();
+            format.listOverride = 0;
+            format.pnFormat = null;
+            SimpleAttributeSet a = characterAttributes(format);
+            a.addAttributes(paragraphAttributes(format));
+            definitions.put(style, a);
+        });
+        collector.adopt(definitions);
+    }
+    // --8<-- [end:stylesheet]
+
     // ---------------------------------------------------------------- text
 
     private void literal(char c) {
@@ -960,6 +1036,7 @@ final class RtfReader {
         int code = value < 0 ? value + 65536 : value;
         if (state.destination == Destination.TEXT) addTextChar((char) code);
         else if (state.destination == Destination.FONT_TABLE) entryName.append((char) code);
+        else if (state.destination == Destination.STYLESHEET) styleName.append((char) code);
         else if (state.destination == Destination.SHAPE_NAME) propertyName.append((char) code);
         else if (state.destination == Destination.SHAPE_VALUE) propertyValue.append((char) code);
         skipChars = state.unicodeSkip;
@@ -1009,6 +1086,10 @@ final class RtfReader {
                             : new Color(clamp(red), clamp(green), clamp(blue)));
                     red = green = blue = -1;
                 }
+            }
+            case STYLESHEET -> {
+                if (c == ';') addStyle();
+                else styleName.append(c);
             }
             case SHAPE_NAME -> propertyName.append(c);
             case SHAPE_VALUE -> propertyValue.append(c);
@@ -1066,6 +1147,7 @@ final class RtfReader {
 
     /** Gives the paragraph that just ended (or the last one) the paragraph formatting in effect. */
     private void finishParagraph(boolean ended) {
+        collector.paragraph(paragraphStart, builtInStyle(state.style));
         int end = document.getLength();
         int length = Math.max(1, end - paragraphStart);
         document.setParagraphAttributes(paragraphStart, length, paragraphAttributes(state), false);

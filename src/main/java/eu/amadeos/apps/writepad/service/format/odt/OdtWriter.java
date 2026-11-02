@@ -7,6 +7,8 @@ import eu.amadeos.apps.writepad.domain.Picture;
 import eu.amadeos.apps.writepad.service.picture.PictureAttributes;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.Documents;
+import eu.amadeos.apps.writepad.service.style.ParagraphStyle;
+import eu.amadeos.apps.writepad.service.style.ParagraphStyles;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
 import eu.amadeos.apps.writepad.service.layout.TabStops;
 import eu.amadeos.apps.writepad.service.list.ListAttributes;
@@ -33,6 +35,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
@@ -68,6 +71,8 @@ final class OdtWriter {
     private final Map<String, Props> paragraphProps = new HashMap<>();
     private final Map<String, String> textStyles = new LinkedHashMap<>();
     private final Map<String, Map<String, String>> textProps = new HashMap<>();
+    /** The named paragraph styles the text uses, with their complete properties (paragraph, then text). */
+    private final Map<ParagraphStyle, List<Map<String, String>>> namedStyles = new EnumMap<>(ParagraphStyle.class);
     /** Our list ids by order of appearance (L1, L2, ...), with the styles of their levels as first used. */
     private final Map<Integer, Integer> listNumbers = new LinkedHashMap<>();
     private final Map<Integer, ListFormat[]> listLevels = new HashMap<>();
@@ -87,7 +92,7 @@ final class OdtWriter {
     private final java.util.Set<String> frameNames = new java.util.HashSet<>();
 
     /** The paragraph formatting of one P style. */
-    private record Props(Map<String, String> paragraph, List<TabStop> tabs, Map<String, String> text) {
+    private record Props(String parent, Map<String, String> paragraph, List<TabStop> tabs, Map<String, String> text) {
     }
 
     private OdtWriter(DocumentContent content) {
@@ -164,6 +169,10 @@ final class OdtWriter {
 
     private void content(XMLStreamWriter xml) throws XMLStreamException {
         // A first pass over the text finds the styles, lists and fonts it uses, which come before it.
+        for (ParagraphStyle style : ParagraphStyles.used(document)) {
+            AttributeSet definition = ParagraphStyles.definition(document, style);
+            namedStyles.put(style, List.of(paragraphProperties(definition), textProperties(definition)));
+        }
         XMLStreamWriter discard = XML.createXMLStreamWriter(OutputStream.nullOutputStream(), "UTF-8");
         discard.writeStartElement("office", "text", Odf.OFFICE);
         paragraphs(discard);
@@ -397,8 +406,13 @@ final class OdtWriter {
     }
 
     private void paragraph(XMLStreamWriter xml, Element paragraph) throws XMLStreamException {
-        xml.writeStartElement("text", "p", Odf.TEXT);
+        ParagraphStyle named = ParagraphStyles.of(paragraph);
+        // A heading is a text:h with its level, which LibreOffice's Navigator and outline numbering use.
+        xml.writeStartElement("text", named.isHeading() ? "h" : "p", Odf.TEXT);
         xml.writeAttribute("text", Odf.TEXT, "style-name", paragraphStyle(paragraph));
+        if (named.isHeading()) {
+            xml.writeAttribute("text", Odf.TEXT, "outline-level", String.valueOf(named.outlineLevel()));
+        }
         boolean[] lastSpace = {true};
         String open = null;
         for (int r = 0; r < paragraph.getElementCount(); r++) {
@@ -421,12 +435,15 @@ final class OdtWriter {
                 lastSpace[0] = false;
                 continue;
             }
-            // Runs in the same format (a line break has an element of its own) share one span.
-            String style = textStyle(run.getAttributes());
-            if (!style.equals(open)) {
+            // Runs in the same format (a line break has an element of its own) share one span; text in the
+            // paragraph's own format needs none.
+            String style = textStyle(run.getAttributes(), paragraph.getAttributes());
+            if (!java.util.Objects.equals(style, open)) {
                 if (open != null) xml.writeEndElement();
-                xml.writeStartElement("text", "span", Odf.TEXT);
-                xml.writeAttribute("text", Odf.TEXT, "style-name", style);
+                if (style != null) {
+                    xml.writeStartElement("text", "span", Odf.TEXT);
+                    xml.writeAttribute("text", Odf.TEXT, "style-name", style);
+                }
                 open = style;
             }
             text(xml, text, lastSpace);
@@ -559,8 +576,38 @@ final class OdtWriter {
 
     // ---------------------------------------------------------------- automatic styles
 
+    /**
+     * The automatic style of a paragraph: its named style as the parent, and only what is set by hand on the
+     * paragraph (or on its end, which sets the height of an empty paragraph) as properties.
+     */
     private String paragraphStyle(Element paragraph) {
         AttributeSet a = paragraph.getAttributes();
+        ParagraphStyle named = ParagraphStyles.of(paragraph);
+        Map<String, String> p = difference(paragraphProperties(a), namedStyles.get(named).get(0));
+        float left = StyleConstants.getLeftIndent(a);
+        List<TabStop> tabs = new ArrayList<>();
+        TabSet tabSet = StyleConstants.getTabSet(a);
+        if (tabSet != null) {
+            for (int i = 0; i < tabSet.getTabCount(); i++) tabs.add(tabSet.getTab(i));
+        }
+        // Tab positions count from the left indent, which the style may give.
+        if (!tabs.isEmpty()) p.put("fo:margin-left", Odf.cm(left));
+        int end = Math.max(paragraph.getStartOffset(), paragraph.getEndOffset() - 1);
+        Map<String, String> text = textProperties(
+                ParagraphStyles.characterDirect(document.getCharacterElement(end).getAttributes(), a));
+        StringBuilder key = new StringBuilder(named.odtName()).append(p).append(text);
+        for (TabStop tab : tabs) {
+            key.append('|').append(tab.getPosition() - left).append(',').append(tab.getAlignment()).append(',')
+                    .append(tab.getLeader());
+        }
+        return paragraphStyles.computeIfAbsent(key.toString(), k -> {
+            paragraphProps.put(k, new Props(named.odtName(), p, tabs, text));
+            return "P" + (paragraphStyles.size() + 1);
+        });
+    }
+
+    /** All paragraph properties of a paragraph or style. */
+    private static Map<String, String> paragraphProperties(AttributeSet a) {
         Map<String, String> p = new LinkedHashMap<>();
         p.put("fo:text-align", switch (StyleConstants.getAlignment(a)) {
             case StyleConstants.ALIGN_CENTER -> "center";
@@ -568,38 +615,29 @@ final class OdtWriter {
             case StyleConstants.ALIGN_JUSTIFIED -> "justify";
             default -> "start";
         });
-        float left = StyleConstants.getLeftIndent(a);
-        p.put("fo:margin-left", Odf.cm(left));
+        p.put("fo:margin-left", Odf.cm(StyleConstants.getLeftIndent(a)));
         p.put("fo:margin-right", Odf.cm(StyleConstants.getRightIndent(a)));
         p.put("fo:text-indent", Odf.cm(StyleConstants.getFirstLineIndent(a)));
         p.put("fo:margin-top", Odf.cm(StyleConstants.getSpaceAbove(a)));
         p.put("fo:margin-bottom", Odf.cm(StyleConstants.getSpaceBelow(a)));
-        float lineSpacing = StyleConstants.getLineSpacing(a);
-        if (lineSpacing > 0) p.put("fo:line-height", Math.round((1 + lineSpacing) * 100) + "%");
-        List<TabStop> tabs = new ArrayList<>();
-        TabSet tabSet = StyleConstants.getTabSet(a);
-        if (tabSet != null) {
-            for (int i = 0; i < tabSet.getTabCount(); i++) tabs.add(tabSet.getTab(i));
-        }
-        // An empty paragraph is as high as its font: the format of its end goes into the paragraph style.
-        int end = Math.max(paragraph.getStartOffset(), paragraph.getEndOffset() - 1);
-        Map<String, String> text = textProperties(document.getCharacterElement(end).getAttributes());
-        StringBuilder key = new StringBuilder(p.toString()).append(text);
-        for (TabStop tab : tabs) {
-            key.append('|').append(tab.getPosition() - left).append(',').append(tab.getAlignment()).append(',')
-                    .append(tab.getLeader());
-        }
-        return paragraphStyles.computeIfAbsent(key.toString(), k -> {
-            paragraphProps.put(k, new Props(p, tabs, text));
-            return "P" + (paragraphStyles.size() + 1);
+        p.put("fo:line-height", Math.round((1 + Math.max(0, StyleConstants.getLineSpacing(a))) * 100) + "%");
+        return p;
+    }
+
+    /** The properties that differ from the style's. */
+    private static Map<String, String> difference(Map<String, String> own, Map<String, String> style) {
+        Map<String, String> d = new LinkedHashMap<>();
+        own.forEach((k, v) -> {
+            if (!v.equals(style.get(k))) d.put(k, v);
         });
+        return d;
     }
 
     private void paragraphStyle(XMLStreamWriter xml, String name, Props props) throws XMLStreamException {
         xml.writeStartElement("style", "style", Odf.STYLE);
         xml.writeAttribute("style", Odf.STYLE, "name", name);
         xml.writeAttribute("style", Odf.STYLE, "family", "paragraph");
-        xml.writeAttribute("style", Odf.STYLE, "parent-style-name", "Standard");
+        xml.writeAttribute("style", Odf.STYLE, "parent-style-name", props.parent());
         if (props.tabs().isEmpty()) {
             xml.writeEmptyElement("style", "paragraph-properties", Odf.STYLE);
             attributes(xml, props.paragraph());
@@ -643,8 +681,10 @@ final class OdtWriter {
         }
     }
 
-    private String textStyle(AttributeSet a) {
-        Map<String, String> props = textProperties(a);
+    /** The automatic style of a run in what differs from its paragraph; null if nothing does. */
+    private String textStyle(AttributeSet run, AttributeSet paragraph) {
+        Map<String, String> props = textProperties(ParagraphStyles.characterDirect(run, paragraph));
+        if (props.isEmpty()) return null;
         String key = props.toString();
         return textStyles.computeIfAbsent(key, k -> {
             textProps.put(k, props);
@@ -652,29 +692,49 @@ final class OdtWriter {
         });
     }
 
-    /** The text properties of a run, for Western, Asian and complex scripts alike. */
+    /**
+     * The text properties for the formatting the attributes set (for Western, Asian and complex scripts
+     * alike), including "not bold" and the like, so that they can override a style.
+     */
     private Map<String, String> textProperties(AttributeSet a) {
         Map<String, String> t = new LinkedHashMap<>();
-        String family = StyleConstants.getFontFamily(a);
-        fonts.add(family);
-        String size = Odf.pt(StyleConstants.getFontSize(a));
         for (String script : new String[]{"", "-asian", "-complex"}) {
-            t.put("style:font-name" + script, family);
-            t.put((script.isEmpty() ? "fo:" : "style:") + "font-size" + script, size);
-            if (StyleConstants.isBold(a)) t.put((script.isEmpty() ? "fo:" : "style:") + "font-weight" + script, "bold");
-            if (StyleConstants.isItalic(a)) t.put((script.isEmpty() ? "fo:" : "style:") + "font-style" + script, "italic");
+            String fo = script.isEmpty() ? "fo:" : "style:";
+            if (a.isDefined(StyleConstants.FontFamily)) {
+                String family = StyleConstants.getFontFamily(a);
+                fonts.add(family);
+                t.put("style:font-name" + script, family);
+            }
+            if (a.isDefined(StyleConstants.FontSize)) t.put(fo + "font-size" + script, Odf.pt(StyleConstants.getFontSize(a)));
+            if (a.isDefined(StyleConstants.Bold)) {
+                t.put(fo + "font-weight" + script, StyleConstants.isBold(a) ? "bold" : "normal");
+            }
+            if (a.isDefined(StyleConstants.Italic)) {
+                t.put(fo + "font-style" + script, StyleConstants.isItalic(a) ? "italic" : "normal");
+            }
         }
-        if (StyleConstants.isUnderline(a)) {
-            t.put("style:text-underline-style", "solid");
-            t.put("style:text-underline-width", "auto");
-            t.put("style:text-underline-color", "font-color");
+        if (a.isDefined(StyleConstants.Underline)) {
+            if (StyleConstants.isUnderline(a)) {
+                t.put("style:text-underline-style", "solid");
+                t.put("style:text-underline-width", "auto");
+                t.put("style:text-underline-color", "font-color");
+            } else {
+                t.put("style:text-underline-style", "none");
+            }
         }
-        if (StyleConstants.isStrikeThrough(a)) {
-            t.put("style:text-line-through-style", "solid");
-            t.put("style:text-line-through-type", "single");
+        if (a.isDefined(StyleConstants.StrikeThrough)) {
+            if (StyleConstants.isStrikeThrough(a)) {
+                t.put("style:text-line-through-style", "solid");
+                t.put("style:text-line-through-type", "single");
+            } else {
+                t.put("style:text-line-through-style", "none");
+            }
         }
         if (StyleConstants.isSuperscript(a)) t.put("style:text-position", "super 58%");
-        if (StyleConstants.isSubscript(a)) t.put("style:text-position", "sub 58%");
+        else if (StyleConstants.isSubscript(a)) t.put("style:text-position", "sub 58%");
+        else if (a.isDefined(StyleConstants.Superscript) || a.isDefined(StyleConstants.Subscript)) {
+            t.put("style:text-position", "0% 100%");
+        }
         if (a.isDefined(StyleConstants.Foreground)) {
             Color c = StyleConstants.getForeground(a);
             t.put("fo:color", String.format(Locale.ROOT, "#%02x%02x%02x", c.getRed(), c.getGreen(), c.getBlue()));
@@ -782,10 +842,9 @@ final class OdtWriter {
         }
         textProperties(xml, text);
         xml.writeEndElement();
-        xml.writeEmptyElement("style", "style", Odf.STYLE);
-        xml.writeAttribute("style", Odf.STYLE, "name", "Standard");
-        xml.writeAttribute("style", Odf.STYLE, "family", "paragraph");
-        xml.writeAttribute("style", Odf.STYLE, "class", "text");
+        for (Map.Entry<ParagraphStyle, List<Map<String, String>>> named : namedStyles.entrySet()) {
+            namedStyle(xml, named.getKey(), named.getValue().get(0), named.getValue().get(1));
+        }
         // The parent of the pictures' frame styles: LibreOffice takes frames without it for drawing shapes.
         xml.writeStartElement("style", "style", Odf.STYLE);
         xml.writeAttribute("style", Odf.STYLE, "name", "Graphics");
@@ -823,6 +882,38 @@ final class OdtWriter {
         xml.writeEndElement();
         xml.writeEndElement();
     }
+
+    // --8<-- [start:named-style]
+    /**
+     * A named paragraph style with all its properties, under the name LibreOffice gives its own built-in
+     * style, so that LibreOffice takes it for that one ({@code Heading_20_1} shown as "Heading 1").
+     */
+    private static void namedStyle(XMLStreamWriter xml, ParagraphStyle style, Map<String, String> paragraph,
+                                   Map<String, String> text) throws XMLStreamException {
+        xml.writeStartElement("style", "style", Odf.STYLE);
+        xml.writeAttribute("style", Odf.STYLE, "name", style.odtName());
+        if (style.odtDisplayName() != null) {
+            xml.writeAttribute("style", Odf.STYLE, "display-name", style.odtDisplayName());
+        }
+        xml.writeAttribute("style", Odf.STYLE, "family", "paragraph");
+        if (style != ParagraphStyle.NORMAL) {
+            xml.writeAttribute("style", Odf.STYLE, "parent-style-name", ParagraphStyle.NORMAL.odtName());
+        }
+        if (style.next() != style) {
+            xml.writeAttribute("style", Odf.STYLE, "next-style-name", style.next().odtName());
+        }
+        if (style.isHeading()) {
+            xml.writeAttribute("style", Odf.STYLE, "default-outline-level", String.valueOf(style.outlineLevel()));
+        }
+        xml.writeAttribute("style", Odf.STYLE, "class", style.isHeading() || style == ParagraphStyle.TITLE
+                || style == ParagraphStyle.SUBTITLE ? "chapter" : "text");
+        xml.writeEmptyElement("style", "paragraph-properties", Odf.STYLE);
+        attributes(xml, paragraph);
+        if (style.isHeading()) xml.writeAttribute("fo", Odf.FO, "keep-with-next", "always");
+        textProperties(xml, text);
+        xml.writeEndElement();
+    }
+    // --8<-- [end:named-style]
 
     private void meta(XMLStreamWriter xml) throws XMLStreamException {
         root(xml, "document-meta");

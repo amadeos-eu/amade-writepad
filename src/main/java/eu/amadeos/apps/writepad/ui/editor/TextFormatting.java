@@ -2,6 +2,8 @@ package eu.amadeos.apps.writepad.ui.editor;
 
 import eu.amadeos.apps.writepad.service.list.ListAttributes;
 import eu.amadeos.apps.writepad.service.list.ListFormat;
+import eu.amadeos.apps.writepad.service.style.ParagraphStyle;
+import eu.amadeos.apps.writepad.service.style.ParagraphStyles;
 
 import javax.swing.text.AttributeSet;
 import javax.swing.text.Element;
@@ -50,7 +52,12 @@ public final class TextFormatting {
      */
     public AttributeSet characterAttributes() {
         int start = editor.getSelectionStart();
-        if (start == editor.getSelectionEnd()) return editor.getInputAttributes();
+        if (start == editor.getSelectionEnd()) {
+            // The input attributes hold only what is set by hand; the rest comes from the paragraph's style.
+            SimpleAttributeSet input = new SimpleAttributeSet(editor.getInputAttributes());
+            input.setResolveParent(paragraphAttributes());
+            return input;
+        }
         StyledDocument doc = editor.getStyledDocument();
         return doc.getCharacterElement(start).getAttributes();
     }
@@ -345,6 +352,41 @@ public final class TextFormatting {
         SimpleAttributeSet attributes = new SimpleAttributeSet();
         StyleConstants.setAlignment(attributes, alignment);
         editor.setParagraphAttributes(attributes, false);
+    }
+
+    // ---------------------------------------------------------------- paragraph styles
+
+    /** The style of the paragraph at the caret (at the start of the selection). */
+    public ParagraphStyle style() {
+        return ParagraphStyles.of(editor.getStyledDocument().getParagraphElement(editor.getSelectionStart()));
+    }
+
+    // --8<-- [start:set-style]
+    /**
+     * Gives the selected paragraphs a style; formatting set by hand that covers whole paragraphs goes, so they
+     * take the style's look (see {@link ParagraphStyles#apply}).
+     */
+    public void setStyle(ParagraphStyle style) {
+        ParagraphStyles.apply(editor.getStyledDocument(), selectedParagraphs(), style);
+        if (editor.getSelectionStart() == editor.getSelectionEnd()) ParagraphStyles.clearInput(editor.getInputAttributes());
+    }
+    // --8<-- [end:set-style]
+
+    /** Ctrl+M: the selection (or the paragraph at the caret) loses its formatting set by hand. */
+    public void clearDirectFormatting() {
+        ParagraphStyles.clearDirect(editor.getStyledDocument(), editor.getSelectionStart(), editor.getSelectionEnd());
+        ParagraphStyles.clearInput(editor.getInputAttributes());
+    }
+
+    /**
+     * After Enter at the end of a heading: the new paragraph is Normal, as the style's next style says, without
+     * the heading's formatting set by hand.
+     */
+    public void continueWithNextStyle(ParagraphStyle previous) {
+        if (previous.next() == previous) return;
+        Element paragraph = editor.getStyledDocument().getParagraphElement(editor.getCaretPosition());
+        ParagraphStyles.apply(editor.getStyledDocument(), List.of(paragraph), previous.next());
+        ParagraphStyles.clearInput(editor.getInputAttributes());
     }
 
     private void setCharacter(Object key, Object value) {

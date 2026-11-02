@@ -1,5 +1,7 @@
 package eu.amadeos.apps.writepad.ui.main;
 
+import eu.amadeos.apps.writepad.service.style.ParagraphStyles;
+import eu.amadeos.apps.writepad.service.style.ParagraphStyle;
 import eu.amadeos.apps.writepad.OnEdt;
 import eu.amadeos.apps.writepad.QueueExecutor;
 import eu.amadeos.commons.i18n.Messages;
@@ -300,6 +302,72 @@ class EditorActionsTest {
             assertTrue(actions.save.isEnabled());
             assertTrue(actions.saveAs.isEnabled());
             assertTrue(actions.print.isEnabled());
+        });
+    }
+
+    @Test
+    void ctrlDigitsSetStylesAndEnterAfterAHeadingGoesBackToNormal() throws Exception {
+        withEditor("Chapter", () -> {
+            editor.setCaretPosition(3);
+            Action heading = actions.paragraphStyles.get(ParagraphStyle.HEADING_1);
+            assertEquals(KeyStroke.getKeyStroke(KeyEvent.VK_1, InputEvent.CTRL_DOWN_MASK),
+                    heading.getValue(Action.ACCELERATOR_KEY));
+            perform(heading);
+            assertEquals(ParagraphStyle.HEADING_1, actions.formatting().style());
+            assertTrue(selected(heading));
+            editor.setCaretPosition(7);
+            key(KeyEvent.VK_ENTER, 0);
+            editor.replaceSelection("Text");
+            Element second = editor.getStyledDocument().getDefaultRootElement().getElement(1);
+            assertEquals(ParagraphStyle.NORMAL, ParagraphStyles.of(second));
+            assertFalse(StyleConstants.isBold(editor.getStyledDocument().getCharacterElement(9).getAttributes()));
+            // Enter in the middle of a heading keeps both parts headings.
+            editor.setCaretPosition(3);
+            key(KeyEvent.VK_ENTER, 0);
+            assertEquals(ParagraphStyle.HEADING_1,
+                    ParagraphStyles.of(editor.getStyledDocument().getDefaultRootElement().getElement(1)));
+        });
+    }
+
+    @Test
+    void clearFormattingRemovesWhatWasSetByHand() throws Exception {
+        withEditor("some text", () -> {
+            editor.select(0, 4);
+            perform(actions.bold);
+            perform(actions.alignCenter);
+            assertTrue(StyleConstants.isBold(editor.getStyledDocument().getCharacterElement(1).getAttributes()));
+            perform(actions.clearFormatting);
+            assertFalse(StyleConstants.isBold(editor.getStyledDocument().getCharacterElement(1).getAttributes()));
+            assertEquals(StyleConstants.ALIGN_LEFT, actions.formatting().state().alignment());
+            perform(actions.undoAction);
+            assertTrue(StyleConstants.isBold(editor.getStyledDocument().getCharacterElement(1).getAttributes()),
+                    "one undo step");
+        });
+    }
+
+    @Test
+    void theStylesDialogChangesAStyleAsOneUndoStep() throws Exception {
+        withEditor("Chapter", () -> {
+            perform(actions.paragraphStyles.get(ParagraphStyle.HEADING_1));
+            actions.setDialogs(new EditorActions.Dialogs() {
+                @Override
+                public Optional<java.util.Map<ParagraphStyle, javax.swing.text.AttributeSet>> styles(
+                        java.util.Map<ParagraphStyle, javax.swing.text.AttributeSet> current, ParagraphStyle atCaret,
+                        javax.swing.text.AttributeSet caretLook) {
+                    assertEquals(ParagraphStyle.HEADING_1, atCaret);
+                    assertEquals(18, StyleConstants.getFontSize(caretLook));
+                    javax.swing.text.SimpleAttributeSet bigger =
+                            new javax.swing.text.SimpleAttributeSet(current.get(ParagraphStyle.HEADING_1));
+                    StyleConstants.setFontSize(bigger, 30);
+                    return Optional.of(java.util.Map.of(ParagraphStyle.HEADING_1, bigger));
+                }
+            });
+            perform(actions.styles);
+            assertEquals(30, StyleConstants.getFontSize(editor.getStyledDocument().getCharacterElement(1).getAttributes()));
+            perform(actions.undoAction);
+            assertEquals(18, StyleConstants.getFontSize(editor.getStyledDocument().getCharacterElement(1).getAttributes()));
+            perform(actions.redoAction);
+            assertEquals(30, StyleConstants.getFontSize(editor.getStyledDocument().getCharacterElement(1).getAttributes()));
         });
     }
 }

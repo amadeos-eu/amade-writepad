@@ -9,6 +9,8 @@ import eu.amadeos.apps.writepad.domain.Units;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
 import eu.amadeos.apps.writepad.service.list.ListAttributes;
+import eu.amadeos.apps.writepad.service.style.ParagraphStyle;
+import eu.amadeos.apps.writepad.service.style.ParagraphStyles;
 import eu.amadeos.apps.writepad.service.list.ListFormat;
 import eu.amadeos.apps.writepad.service.layout.FloatingPicture;
 import eu.amadeos.apps.writepad.service.list.ListNumbering;
@@ -84,6 +86,7 @@ final class RtfWriter {
                 if (b < blocks.size() - 1) body.append("\\par\n");
             }
         }
+        String stylesheet = stylesheet();
         StringBuilder rtf = new StringBuilder();
         rtf.append("{\\rtf1\\ansi\\ansicpg1252\\deff0\\uc1\n");
         rtf.append("{\\fonttbl");
@@ -102,6 +105,7 @@ final class RtfWriter {
             }
             rtf.append("}\n");
         }
+        rtf.append(stylesheet);
         if (!listNumbers.isEmpty()) lists(rtf);
         rtf.append("{\\*\\generator amade-writepad;}\n");
         page(rtf);
@@ -135,6 +139,10 @@ final class RtfWriter {
             }
         }
         body.append(inTable ? "\\pard\\intbl" : "\\pard");
+        // The style is a name for programs that know it; the formatting follows in full, as RTF wants it.
+        ParagraphStyle style = ParagraphStyles.of(paragraph);
+        body.append("\\s").append(number(style));
+        if (style.isHeading()) body.append("\\outlinelevel").append(style.outlineLevel() - 1);
         switch (StyleConstants.getAlignment(a)) {
             case StyleConstants.ALIGN_CENTER -> body.append("\\qc");
             case StyleConstants.ALIGN_RIGHT -> body.append("\\qr");
@@ -171,6 +179,49 @@ final class RtfWriter {
             else run(run.getAttributes(), text);
         }
     }
+
+    // --8<-- [start:stylesheet]
+    /**
+     * The style sheet with the styles the text uses: number, formatting and Word's name ({@code heading 1}),
+     * so that Word and LibreOffice see their own styles.
+     */
+    private String stylesheet() {
+        StringBuilder out = new StringBuilder("{\\stylesheet");
+        for (ParagraphStyle style : ParagraphStyles.used(document)) {
+            AttributeSet a = ParagraphStyles.definition(document, style);
+            out.append("{\\s").append(number(style));
+            out.append(switch (StyleConstants.getAlignment(a)) {
+                case StyleConstants.ALIGN_CENTER -> "\\qc";
+                case StyleConstants.ALIGN_RIGHT -> "\\qr";
+                case StyleConstants.ALIGN_JUSTIFIED -> "\\qj";
+                default -> "\\ql";
+            });
+            out.append("\\li").append(Units.pointsToTwips(StyleConstants.getLeftIndent(a)))
+                    .append("\\ri").append(Units.pointsToTwips(StyleConstants.getRightIndent(a)))
+                    .append("\\fi").append(Units.pointsToTwips(StyleConstants.getFirstLineIndent(a)))
+                    .append("\\sb").append(Units.pointsToTwips(StyleConstants.getSpaceAbove(a)))
+                    .append("\\sa").append(Units.pointsToTwips(StyleConstants.getSpaceBelow(a)));
+            float lineSpacing = StyleConstants.getLineSpacing(a);
+            if (lineSpacing > 0) out.append("\\sl").append(Math.round((1 + lineSpacing) * 240)).append("\\slmult1");
+            if (style.isHeading()) out.append("\\outlinelevel").append(style.outlineLevel() - 1);
+            out.append("\\f").append(font(StyleConstants.getFontFamily(a)))
+                    .append("\\fs").append(StyleConstants.getFontSize(a) * 2);
+            if (StyleConstants.isBold(a)) out.append("\\b");
+            if (StyleConstants.isItalic(a)) out.append("\\i");
+            if (a.isDefined(StyleConstants.Foreground)) out.append("\\cf").append(color(StyleConstants.getForeground(a)));
+            if (style != ParagraphStyle.NORMAL) out.append("\\sbasedon0");
+            out.append("\\snext").append(number(style.next())).append(' ');
+            text(out, style.rtfName());
+            out.append(";}");
+        }
+        return out.append("}\n").toString();
+    }
+
+    /** A style's number in the style sheet: 0 for Normal, as Word has it. */
+    private static int number(ParagraphStyle style) {
+        return style.ordinal();
+    }
+    // --8<-- [end:stylesheet]
 
     private void run(AttributeSet a, String text) {
         body.append("{\\f").append(font(StyleConstants.getFontFamily(a)))
