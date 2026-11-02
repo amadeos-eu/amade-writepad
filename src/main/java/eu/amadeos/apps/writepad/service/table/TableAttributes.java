@@ -8,6 +8,7 @@ import java.awt.Color;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 
+// --8<-- [start:attributes]
 /**
  * Table membership as paragraph attributes. A table is a run of paragraphs that carry the same
  * {@link TableFormat} under {@link #TABLE}; each of them also names its row ({@link #ROW}, an object that
@@ -39,6 +40,7 @@ public final class TableAttributes {
     public static Object newRow() {
         return new RowId(ROWS.incrementAndGet());
     }
+    // --8<-- [end:attributes]
 
     /** The table a paragraph belongs to, null if it is not in a table. */
     public static TableFormat table(AttributeSet paragraph) {
