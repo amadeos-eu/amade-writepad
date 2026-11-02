@@ -5,7 +5,9 @@ import eu.amadeos.apps.writepad.domain.Margins;
 import eu.amadeos.apps.writepad.domain.Orientation;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.Documents;
+import eu.amadeos.apps.writepad.domain.Picture;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
+import eu.amadeos.apps.writepad.service.picture.PictureAttributes;
 import eu.amadeos.apps.writepad.service.list.ListAttributes;
 import eu.amadeos.apps.writepad.service.list.ListFormat;
 import eu.amadeos.commons.print.PaperSize;
@@ -37,7 +39,8 @@ import java.util.zip.ZipInputStream;
  * become list attributes (nested lists give the level, {@code text:continue-list} and
  * {@code text:continue-numbering} join lists), and the page layout of the first master page becomes the page
  * setup. Of what the model doesn't know, tables and sections give their paragraphs, fields and links their
- * text; pictures, frames, notes and comments are skipped.
+ * text; pictures become pictures (in the line, or floating with the text around them); other frames, notes and
+ * comments are skipped.
  */
 final class OdtReader {
     private static final XMLInputFactory XML = XMLInputFactory.newFactory();
@@ -74,14 +77,18 @@ final class OdtReader {
     private record ListPlace(int list, int level, Map<Integer, OdtStyles.ListLevel> style, boolean labelled) {
     }
 
-    private OdtReader() {
+    /** The files of the package, for the pictures. */
+    private final Map<String, byte[]> files;
+
+    private OdtReader(Map<String, byte[]> files) {
+        this.files = files;
     }
 
     static DocumentContent read(byte[] bytes) throws IOException {
         Map<String, byte[]> files = unzip(bytes);
         byte[] content = files.get("content.xml");
         if (content == null) throw new IOException("Not an OpenDocument file: no content.xml");
-        OdtReader reader = new OdtReader();
+        OdtReader reader = new OdtReader(files);
         try {
             if (files.containsKey("settings.xml")) reader.parseSettings(files.get("settings.xml"));
             if (files.containsKey("styles.xml")) reader.parse(files.get("styles.xml"));
@@ -99,7 +106,8 @@ final class OdtReader {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
                 String name = entry.getName();
-                if (name.equals("content.xml") || name.equals("styles.xml") || name.equals("settings.xml")) {
+                if (name.equals("content.xml") || name.equals("styles.xml") || name.equals("settings.xml")
+                        || name.startsWith("Pictures/") && !entry.isDirectory()) {
                     files.put(name, zip.readAllBytes());
                 }
             }
@@ -250,6 +258,10 @@ final class OdtReader {
                 }
                 case "style:text-properties" -> {
                     style.text.putAll(attributes(r));
+                    skip(r);
+                }
+                case "style:graphic-properties" -> {
+                    style.graphic.putAll(attributes(r));
                     skip(r);
                 }
                 default -> skip(r);
@@ -450,6 +462,8 @@ final class OdtReader {
                         add(String.valueOf(WritepadDocument.LINE_BREAK), attributes);
                         skip(r);
                     }
+                    case "draw:frame" -> frame(r, attributes);
+                    case "draw:a" -> inline(r, format);
                     default -> {
                         if (SKIPPED.contains(child) || child.startsWith("draw:") || child.startsWith("?:")
                                 || child.startsWith("text:bookmark") || child.startsWith("text:reference-mark")
@@ -464,6 +478,94 @@ final class OdtReader {
             }
         }
     }
+
+    // --8<-- [start:frame]
+    /**
+     * A frame with an image: a picture in the line if it is anchored as a character, otherwise a picture that
+     * floats at the side its style puts it (when text runs around it) or sits in the line at its anchor. Frames
+     * without an image (text boxes, objects) are skipped.
+     */
+    private void frame(XMLStreamReader r, AttributeSet around) throws XMLStreamException {
+        String anchor = attribute(r, Odf.TEXT, "anchor-type");
+        Map<String, String> graphic = styles.graphic(attribute(r, Odf.DRAW, "style-name"));
+        double width = Odf.points(attribute(r, Odf.SVG, "width"));
+        double height = Odf.points(attribute(r, Odf.SVG, "height"));
+        String name = attribute(r, Odf.DRAW, "name");
+        String[] href = {null};
+        byte[][] inlineData = {null};
+        StringBuilder description = new StringBuilder();
+        children(r, child -> {
+            switch (child) {
+                case "draw:image" -> {
+                    if (href[0] == null && inlineData[0] == null) {
+                        href[0] = r.getAttributeValue(Odf.XLINK, "href");
+                        children(r, inner -> {
+                            if (inner.equals("office:binary-data")) {
+                                try {
+                                    inlineData[0] = java.util.Base64.getMimeDecoder().decode(r.getElementText());
+                                } catch (IllegalArgumentException e) {
+                                    inlineData[0] = null;
+                                }
+                            } else {
+                                skip(r);
+                            }
+                        });
+                    } else {
+                        skip(r);
+                    }
+                }
+                case "svg:desc" -> description.append(r.getElementText().strip());
+                case "svg:title" -> {
+                    String title = r.getElementText().strip();
+                    if (description.isEmpty()) description.append(title);
+                }
+                default -> skip(r);
+            }
+        });
+        byte[] data = inlineData[0] != null ? inlineData[0] : href[0] != null ? files.get(stripDot(href[0])) : null;
+        if (data == null) return;
+        Picture picture;
+        try {
+            // The frame's name is the picture's file name when amade-writepad wrote it.
+            String file = Picture.isFileName(name) ? name
+                    : href[0] != null ? href[0].substring(href[0].lastIndexOf('/') + 1) : "picture.png";
+            picture = Picture.of(data, file);
+        } catch (java.io.IOException e) {
+            return; // an image Java cannot read (SVG, EMF): left out as before
+        }
+        Picture.Border border = border(graphic);
+        double frame = 2 * border.width();
+        double w = Double.isNaN(width) ? picture.width() : Math.max(2, width - frame);
+        double h = Double.isNaN(height) ? w * picture.aspect() : Math.max(2, height - frame);
+        Picture.Placement placement = Picture.Placement.IN_LINE;
+        String wrap = graphic.getOrDefault("style:wrap", "none");
+        if (!"as-char".equals(anchor) && !"char".equals(anchor) || "char".equals(anchor) && !wrap.equals("none")) {
+            if (!wrap.equals("none") && !wrap.equals("run-through")) {
+                placement = "right".equals(graphic.get("style:horizontal-pos")) || wrap.equals("left")
+                        ? Picture.Placement.FLOAT_RIGHT : Picture.Placement.FLOAT_LEFT;
+            }
+        }
+        flushText();
+        insert(String.valueOf(PictureAttributes.OBJECT), PictureAttributes.attributes(around,
+                picture.withLayout(w, h, placement, border, description.toString())));
+        afterSpace = false;
+    }
+
+    private static String stripDot(String href) {
+        return href.startsWith("./") ? href.substring(2) : href;
+    }
+
+    /** The border of a frame style: none, thin (up to 1 pt) or thick. */
+    private static Picture.Border border(Map<String, String> graphic) {
+        String border = graphic.getOrDefault("fo:border", graphic.get("fo:border-top"));
+        if (border == null || border.isBlank() || border.strip().equals("none")) return Picture.Border.NONE;
+        for (String part : border.strip().split("\\s+")) {
+            double points = Odf.points(part);
+            if (!Double.isNaN(points)) return points > 1.2 ? Picture.Border.THICK : Picture.Border.THIN;
+        }
+        return Picture.Border.THIN;
+    }
+    // --8<-- [end:frame]
 
     /** Character data with ODF's white space rule: runs of spaces, tabs and line ends count as one space. */
     private void characters(String chars, AttributeSet attributes) {

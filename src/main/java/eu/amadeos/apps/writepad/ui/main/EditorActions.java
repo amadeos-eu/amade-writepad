@@ -1,6 +1,10 @@
 package eu.amadeos.apps.writepad.ui.main;
 
+import eu.amadeos.apps.writepad.domain.Picture;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
+import eu.amadeos.apps.writepad.service.picture.PictureAttributes;
+import eu.amadeos.apps.writepad.ui.dialog.PictureDialog;
+import eu.amadeos.apps.writepad.ui.editor.PictureEditing;
 import eu.amadeos.commons.i18n.Messages;
 import eu.amadeos.commons.swing.EdtExecutor;
 import eu.amadeos.apps.writepad.service.list.ListFormat;
@@ -37,7 +41,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Objects;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
+import javax.swing.text.BadLocationException;
 import java.util.function.Consumer;
 
 /**
@@ -87,6 +96,11 @@ public final class EditorActions {
     public final Action continueNumbering;
     public final Action paragraph;
     public final Action tabs;
+    public final Action insertPicture;
+    public final Action pictureProperties;
+    public final Action replacePicture;
+    public final Action originalSize;
+    public final Action savePictureAs;
     /** Edits collected into one undo step while {@link #apply} runs. */
     private CompoundEdit group;
     private Dialogs dialogs = new Dialogs() {
@@ -100,6 +114,25 @@ public final class EditorActions {
 
         default Optional<List<TabStop>> tabs(List<TabStop> current) {
             return Optional.empty();
+        }
+
+        /** Asks for an image file. */
+        default Optional<Path> choosePicture() {
+            return Optional.empty();
+        }
+
+        /** The Picture dialog; {@code replacement} asks for another image. */
+        default Optional<PictureDialog.Values> picture(Picture current, PictureEditing.Layout layout,
+                                                       Supplier<Optional<Picture>> replacement) {
+            return Optional.empty();
+        }
+
+        /** Asks where to save a picture's image file. */
+        default Optional<Path> chooseSavePicture(String suggestedName) {
+            return Optional.empty();
+        }
+
+        default void showError(String message) {
         }
     }
 
@@ -152,6 +185,13 @@ public final class EditorActions {
                 e -> edit(formatting::continueNumbering));
         paragraph = action("menu.format.paragraph", "tip.paragraph", null, 0, e -> paragraphDialog());
         tabs = action("menu.format.tabs", "tip.tabs", null, 0, e -> tabsDialog());
+        insertPicture = action("menu.insert.picture", "tip.insert-picture", WritepadGlyph.PICTURE, 0,
+                e -> insertPictureFromFile());
+        pictureProperties = action("menu.picture.properties", "tip.picture-properties", null, 0, e -> pictureDialog());
+        replacePicture = action("menu.picture.replace", "tip.picture-replace", null, 0, e -> replacePicture());
+        originalSize = action("menu.picture.original-size", "tip.picture-original-size", null, 0,
+                e -> originalSize());
+        savePictureAs = action("menu.picture.save-as", "tip.picture-save-as", null, 0, e -> savePictureAs());
         installListKeys();
     }
 
@@ -248,6 +288,89 @@ public final class EditorActions {
         dialogs.tabs(formatting.tabs()).ifPresent(stops -> edit(() -> formatting.setTabs(stops)));
     }
 
+    // ---------------------------------------------------------------- pictures
+
+    private void insertPictureFromFile() {
+        dialogs.choosePicture().flatMap(this::readPicture).ifPresent(this::insertPicture);
+        editor.requestFocusInWindow();
+    }
+
+    /** Puts a picture in place of the selection, fitted to the text column, as one undo step. */
+    public void insertPicture(Picture picture) {
+        edit(() -> {
+            try {
+                PictureEditing.insert(editor, PictureEditing.fitted(picture, editor.pageLayout()));
+            } catch (BadLocationException e) {
+                throw new IllegalStateException(e);
+            }
+        });
+    }
+
+    private Optional<Picture> readPicture(Path path) {
+        try {
+            return Optional.of(Picture.of(Files.readAllBytes(path), path.getFileName().toString()));
+        } catch (IOException | RuntimeException e) {
+            dialogs.showError(msg.format("error.picture", path.getFileName(), e.getMessage()));
+            return Optional.empty();
+        }
+    }
+
+    private Picture selected() {
+        int at = PictureEditing.selectedPicture(editor);
+        return at < 0 ? null : PictureAttributes.at(editor.getStyledDocument(), at);
+    }
+
+    /** The Picture dialog for the selected picture. */
+    public void pictureDialog() {
+        int at = PictureEditing.selectedPicture(editor);
+        Picture current = selected();
+        if (current == null) return;
+        StyledDocument doc = editor.getStyledDocument();
+        dialogs.picture(current, PictureEditing.layoutOf(doc, at),
+                () -> dialogs.choosePicture().flatMap(this::readPicture)).ifPresent(values -> edit(() -> {
+            try {
+                PictureAttributes.replace(doc, at, values.picture());
+                PictureEditing.select(editor, PictureEditing.setLayout(doc, at, values.layout()));
+            } catch (BadLocationException e) {
+                throw new IllegalStateException(e);
+            }
+        }));
+    }
+
+    private void replacePicture() {
+        int at = PictureEditing.selectedPicture(editor);
+        Picture current = selected();
+        if (current == null) return;
+        dialogs.choosePicture().flatMap(this::readPicture).ifPresent(other -> edit(() -> {
+            PictureAttributes.replace(editor.getStyledDocument(), at, current.replacedBy(other));
+            PictureEditing.select(editor, at);
+        }));
+    }
+
+    private void originalSize() {
+        int at = PictureEditing.selectedPicture(editor);
+        Picture current = selected();
+        if (current == null) return;
+        Picture natural = current.withSize(current.naturalWidth(), current.naturalHeight())
+                .fittedInto(editor.pageLayout().contentWidth(), Double.MAX_VALUE);
+        edit(() -> {
+            PictureAttributes.replace(editor.getStyledDocument(), at, natural);
+            PictureEditing.select(editor, at);
+        });
+    }
+
+    private void savePictureAs() {
+        Picture current = selected();
+        if (current == null) return;
+        dialogs.chooseSavePicture(current.name()).ifPresent(path -> {
+            try {
+                Files.write(path, current.data());
+            } catch (IOException e) {
+                dialogs.showError(msg.format("error.save", path.getFileName(), e.getMessage()));
+            }
+        });
+    }
+
     public TextFormatting formatting() {
         return formatting;
     }
@@ -288,6 +411,11 @@ public final class EditorActions {
         boolean selection = editor.getSelectionStart() != editor.getSelectionEnd();
         cut.setEnabled(selection && editor.isEditable());
         copy.setEnabled(selection);
+        boolean picture = PictureEditing.selectedPicture(editor) >= 0;
+        for (Action pictureOnly : new Action[]{pictureProperties, replacePicture, originalSize, savePictureAs}) {
+            pictureOnly.setEnabled(picture);
+        }
+        insertPicture.setEnabled(editor.isEditable());
         updateUndo();
         for (Runnable listener : listeners) listener.run();
     }

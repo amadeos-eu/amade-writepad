@@ -5,6 +5,7 @@ import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.DocumentFormat;
 import eu.amadeos.apps.writepad.service.format.Documents;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
+import eu.amadeos.apps.writepad.service.picture.PictureAttributes;
 
 import javax.swing.text.BadLocationException;
 import javax.swing.text.StyledDocument;
@@ -20,7 +21,7 @@ import java.util.List;
 /**
  * Plain text, as amade-pad reads it: a byte order mark (UTF-8, UTF-16) wins; without one the bytes are
  * UTF-8 if they are valid UTF-8, else Windows-1252, else ISO-8859-1, which maps every byte. CR LF and CR
- * become line breaks. Saving writes UTF-8 with LF line ends and loses all formatting.
+ * become line breaks. Saving writes UTF-8 with LF line ends and loses all formatting and the pictures.
  */
 public final class PlainTextFormat implements DocumentFormat {
     private static final byte[] UTF8_BOM = {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF};
@@ -60,9 +61,9 @@ public final class PlainTextFormat implements DocumentFormat {
     public byte[] write(DocumentContent content) throws IOException {
         StyledDocument document = content.document();
         try {
-            // A line break within a paragraph is a line end in plain text, too.
+            // A line break within a paragraph is a line end in plain text, too; pictures are left out.
             return document.getText(0, document.getLength()).replace(WritepadDocument.LINE_BREAK, '\n')
-                    .getBytes(StandardCharsets.UTF_8);
+                    .replace(String.valueOf(PictureAttributes.OBJECT), "").getBytes(StandardCharsets.UTF_8);
         } catch (BadLocationException e) {
             throw new IllegalStateException(e);
         }

@@ -19,11 +19,12 @@ final class Odf {
     static final String CONFIG = "urn:oasis:names:tc:opendocument:xmlns:config:1.0";
     static final String MANIFEST = "urn:oasis:names:tc:opendocument:xmlns:manifest:1.0";
     static final String XML = "http://www.w3.org/XML/1998/namespace";
+    static final String XLINK = "http://www.w3.org/1999/xlink";
 
     /** The prefixes amade-writepad writes, and by which it keys the formatting properties it reads. */
     static final Map<String, String> PREFIXES = Map.of(
             "office", OFFICE, "style", STYLE, "text", TEXT, "table", TABLE, "draw", DRAW, "fo", FO, "svg", SVG,
-            "meta", META, "config", CONFIG);
+            "meta", META, "config", CONFIG, "xlink", XLINK);
 
     private Odf() {
     }

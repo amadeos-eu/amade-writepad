@@ -6,6 +6,7 @@ import eu.amadeos.apps.writepad.domain.Orientation;
 import eu.amadeos.apps.writepad.domain.Units;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.Documents;
+import eu.amadeos.apps.writepad.service.format.PictureSamples;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
 import eu.amadeos.apps.writepad.service.list.ListAttributes;
 import eu.amadeos.apps.writepad.service.list.ListFormat;
@@ -411,5 +412,19 @@ class RtfFormatTest {
         assertEquals("\\fswiss", RtfWriter.familyClass("SansSerif"));
         assertEquals("\\fmodern", RtfWriter.familyClass("Monospaced"));
         assertEquals("\\fnil", RtfWriter.familyClass("Some Font"));
+    }
+
+    @Test
+    void keepsPictures() throws IOException {
+        byte[] rtf = format.write(PictureSamples.document());
+        String text = new String(rtf, StandardCharsets.US_ASCII);
+        assertTrue(text.contains("\\pngblip") && text.contains("\\shpwr2"), text);
+        PictureSamples.check(format.read(rtf), true, true);
+    }
+
+    /** LibreOffice 24.2 opened the ODT amade-writepad wrote and saved it as RTF; its RTF drops the border. */
+    @Test
+    void readsPicturesLibreOfficeWrote() throws IOException {
+        PictureSamples.check(fixture("libreoffice-pictures.rtf"), true, true, false);
     }
 }
