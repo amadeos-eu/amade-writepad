@@ -1,5 +1,6 @@
 package eu.amadeos.apps.writepad.ui.main;
 
+import eu.amadeos.commons.chars.SpecialCharacters;
 import com.google.inject.Inject;
 import eu.amadeos.commons.i18n.LocaleSettings;
 import eu.amadeos.commons.i18n.Messages;
@@ -217,6 +218,7 @@ public final class MainWindow extends JFrame implements MainView {
         installDocument(Documents.newDocument());
         menuBar = new MainMenuBar(presenter, actions, msg, locales);
         setJMenuBar(menuBar);
+        SpecialCharacters.install(this, menuBar.insertMenu(), msg.locale());
         toolBar = new MainToolBar(actions);
         formatBar = new FormatBar(actions, editor, msg);
         for (JToolBar bar : new JToolBar[]{toolBar, formatBar}) {
