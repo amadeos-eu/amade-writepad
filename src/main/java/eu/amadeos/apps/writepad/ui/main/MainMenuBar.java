@@ -139,7 +139,9 @@ public final class MainMenuBar extends JMenuBar {
         format.add(orientation);
 
         JMenu table = menu("menu.table");
-        table.add(item(actions.insertTable));
+        JMenuItem insertTable = item(actions.insertTable);
+        insertTable.setText(msg.get("menu.table.insert"));
+        table.add(insertTable);
         table.addSeparator();
         for (Action a : tableItems(actions)) {
             if (a == null) table.addSeparator();

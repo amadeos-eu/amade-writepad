@@ -474,6 +474,7 @@ public final class PagedSectionView extends BoxView {
         return axis == X_AXIS ? layout.totalWidth() : layout.totalHeight(pageCount);
     }
 
+    // --8<-- [start:hit]
     /**
      * In a gap or margin, a point belongs to the paragraph above it (BoxView would pick the last one). In a
      * table, it belongs to the cell of its row and column: points left of the table count for the first
@@ -487,14 +488,14 @@ public final class PagedSectionView extends BoxView {
         for (int i = 0; i < n; i++) {
             int top = tops ? rowTop[i] : getOffset(Y_AXIS, i);
             if (alloc.y + top > y) break;
-            if (!inColumn(i, x - alloc.x)) continue;
+            if (!inColumn(i, x)) continue;
             if (alloc.y + getOffset(Y_AXIS, i) <= y || firstInCell(i)) found = i;
         }
         childAllocation(found, alloc);
         return getView(found);
     }
 
-    /** Whether x (layout space) falls into the column of a child; always true outside tables. */
+    /** Whether x (layout space, like the cell edges) falls into the column of a child; always true outside tables. */
     private boolean inColumn(int i, double x) {
         if (i >= cellLeft.length || Double.isNaN(cellLeft[i])) return true;
         AttributeSet a = getView(i).getAttributes();
@@ -514,6 +515,7 @@ public final class PagedSectionView extends BoxView {
     private boolean firstInCell(int i) {
         return i == 0 || !TableAttributes.sameCell(getView(i).getAttributes(), getView(i - 1).getAttributes());
     }
+    // --8<-- [end:hit]
 
     // ---------------------------------------------------------------- zoom: screen <-> points
 

@@ -113,4 +113,25 @@ class TableLayoutTest {
         }
         assertEquals(80, Tables.at(editor.getDocument(), 0).rows().size());
     }
+
+    // --8<-- [start:clicks]
+    /** A click in a cell finds that cell, in a table narrower and in one wider than the text (drawn narrower). */
+    @Test
+    void clicksFindTheirCell() throws Exception {
+        for (double width : new double[]{300, 700}) {
+            PageEditor editor = editor(doc -> {
+                doc.insertString(0, "Before\nAfter", null);
+                int at = TableEditing.insertTable(doc, 7, TableFormat.of(4, width), 1, false);
+                String[] texts = {"A1", "B1", "C1", "D1"};
+                for (int i = texts.length - 1; i >= 0; i--) doc.insertString(at + i, texts[i], null);
+            });
+            String t = text(editor);
+            for (String cell : new String[]{"A1", "B1", "C1", "D1"}) {
+                Rectangle2D r = caret(editor, t.indexOf(cell) + 2);
+                int found = offset(editor, r.getX() + 1, r.getCenterY());
+                assertEquals(t.indexOf(cell) + 2, found, cell + " in a table " + width + " wide");
+            }
+        }
+    }
+    // --8<-- [end:clicks]
 }

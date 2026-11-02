@@ -107,12 +107,14 @@ public final class TablePropertiesDialog {
         lines.setName("lines");
         lineWidth.setValue((double) f.lineWidth());
         lineWidth.setName("line-width");
+        JSpinner.NumberEditor widthEditor = new JSpinner.NumberEditor(lineWidth, "0.0#");
+        widthEditor.getTextField().setColumns(4);
+        lineWidth.setEditor(widthEditor);
         chosenLineColor = f.lineColor();
         lineColor.setName("line-color");
         showLineColor();
         lineColor.addActionListener(e -> chooseLineColor());
-        padding = lengthSpinner(unit, f.padding(), 72);
-        ((SpinnerNumberModel) padding.getModel()).setMinimum(0.0);
+        padding = lengthSpinner(unit, f.padding(), 0, 72);
         padding.setName("padding");
         JPanel linesPage = page(
                 group("dialog.table.lines-group", InsertTableDialog.row(new JLabel(msg.get("dialog.table.lines")), lines),
@@ -148,12 +150,17 @@ public final class TablePropertiesDialog {
         }
     }
 
-    /** A spinner for a length in the user's unit, starting at the given points. */
+    /** A spinner for a length in the user's unit, starting at the given points (a column's width at least). */
     static JSpinner lengthSpinner(MeasurementUnit unit, double points, double maxPoints) {
+        return lengthSpinner(unit, points, TableFormat.MIN_COLUMN / 4, maxPoints);
+    }
+
+    /** A spinner for a length in the user's unit, starting at the given points, kept within min and max. */
+    static JSpinner lengthSpinner(MeasurementUnit unit, double points, double minPoints, double maxPoints) {
+        double min = unit.toUnit(minPoints);
         double max = Math.max(unit.toUnit(maxPoints), unit.toUnit(points));
-        double value = round(unit, unit.toUnit(points));
-        JSpinner s = new JSpinner(new SpinnerNumberModel(Math.min(value, max), unit.toUnit(TableFormat.MIN_COLUMN) / 4,
-                max, unit.decimals() > 0 ? 0.1 : 1.0));
+        double value = Math.max(min, Math.min(round(unit, unit.toUnit(points)), max));
+        JSpinner s = new JSpinner(new SpinnerNumberModel(value, min, max, unit.decimals() > 0 ? 0.1 : 1.0));
         s.setEditor(new JSpinner.NumberEditor(s, "0.0#"));
         return s;
     }
