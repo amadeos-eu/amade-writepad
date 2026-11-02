@@ -37,6 +37,7 @@ public final class MainMenuBar extends JMenuBar {
     private static final int CTRL = InputEvent.CTRL_DOWN_MASK;
 
     private final Messages msg;
+    private final JMenu insert;
     private final Map<PaperSize, JRadioButtonMenuItem> papers = new EnumMap<>(PaperSize.class);
     private final Map<Orientation, JRadioButtonMenuItem> orientations = new EnumMap<>(Orientation.class);
 
@@ -85,7 +86,7 @@ public final class MainMenuBar extends JMenuBar {
         }
         view.add(zoom);
 
-        JMenu insert = menu("menu.insert");
+        insert = menu("menu.insert");
         insert.add(item(actions.insertPicture));
         insert.addSeparator();
         item(insert, "menu.insert.sample-text", 0, 0, presenter::insertSampleText);
@@ -208,5 +209,10 @@ public final class MainMenuBar extends JMenuBar {
     private static JMenuItem named(JMenuItem item, Action action) {
         item.setName(String.valueOf(action.getValue(Action.ACTION_COMMAND_KEY)));
         return item;
+    }
+
+    /** The Insert menu; the window adds Special Characters to it (amade-commons). */
+    JMenu insertMenu() {
+        return insert;
     }
 }
