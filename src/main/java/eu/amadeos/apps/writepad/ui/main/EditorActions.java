@@ -292,6 +292,7 @@ public final class EditorActions {
 
     private void insertPictureFromFile() {
         dialogs.choosePicture().flatMap(this::readPicture).ifPresent(this::insertPicture);
+        editor.requestFocusInWindow();
     }
 
     /** Puts a picture in place of the selection, fitted to the text column, as one undo step. */

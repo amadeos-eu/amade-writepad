@@ -526,7 +526,9 @@ final class OdtReader {
         if (data == null) return;
         Picture picture;
         try {
-            String file = href[0] != null ? href[0].substring(href[0].lastIndexOf('/') + 1) : (name != null ? name : "picture");
+            // The frame's name is the picture's file name when amade-writepad wrote it.
+            String file = Picture.isFileName(name) ? name
+                    : href[0] != null ? href[0].substring(href[0].lastIndexOf('/') + 1) : "picture.png";
             picture = Picture.of(data, file);
         } catch (java.io.IOException e) {
             return; // an image Java cannot read (SVG, EMF): left out as before

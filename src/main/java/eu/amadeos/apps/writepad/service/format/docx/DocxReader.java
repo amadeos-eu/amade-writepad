@@ -701,6 +701,7 @@ final class DocxReader {
         String description = "";
         String title = "";
         String embed = null;
+        String pictureName = null;
         long line = -1;
         boolean noLine = false;
         String parent = "";
@@ -734,6 +735,7 @@ final class DocxReader {
                         title = nonNull(r.getAttributeValue(null, "title")).strip();
                     }
                     case "blip" -> embed = r.getAttributeValue(Ooxml.R, "embed");
+                    case "cNvPr" -> pictureName = r.getAttributeValue(null, "name");
                     case "ln" -> {
                         if (parent.equals("spPr")) line = number(r.getAttributeValue(null, "w"), 9525);
                     }
@@ -753,7 +755,7 @@ final class DocxReader {
         if (data == null) return;
         Picture picture;
         try {
-            picture = Picture.of(data, file.substring(file.lastIndexOf('/') + 1));
+            picture = Picture.of(data, Picture.isFileName(pictureName) ? pictureName : file.substring(file.lastIndexOf('/') + 1));
         } catch (IOException e) {
             return; // an image Java cannot read (EMF, SVG): left out as before
         }

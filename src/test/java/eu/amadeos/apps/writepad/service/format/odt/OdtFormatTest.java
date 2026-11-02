@@ -359,7 +359,10 @@ class OdtFormatTest {
         assertTrue(files.containsKey("Pictures/1.png"), files.keySet().toString());
         String manifest = new String(files.get("META-INF/manifest.xml"), StandardCharsets.UTF_8);
         assertTrue(manifest.contains("Pictures/2.png"), manifest);
-        PictureSamples.check(format.read(odt), true, true);
+        DocumentContent read = format.read(odt);
+        PictureSamples.check(read, true, true);
+        assertEquals("red.png", eu.amadeos.apps.writepad.service.picture.PictureAttributes
+                .in(read.document().getDefaultRootElement()).get(0).picture().name(), "the file name is kept");
     }
 
     /** LibreOffice 24.2 opened what amade-writepad wrote and saved it again. */

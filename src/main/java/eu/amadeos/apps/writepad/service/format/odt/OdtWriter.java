@@ -74,6 +74,7 @@ final class OdtWriter {
     private final Map<String, String> graphicStyles = new LinkedHashMap<>();
     private final Map<String, Map<String, String>> graphicProps = new HashMap<>();
     private int frames;
+    private final java.util.Set<String> frameNames = new java.util.HashSet<>();
 
     /** The paragraph formatting of one P style. */
     private record Props(Map<String, String> paragraph, List<TabStop> tabs, Map<String, String> text) {
@@ -158,6 +159,7 @@ final class OdtWriter {
         paragraphs(discard);
         discard.close();
         frames = 0;
+        frameNames.clear();
 
         root(xml, "document-content");
         fontFaces(xml);
@@ -308,7 +310,11 @@ final class OdtWriter {
         double border = 2 * picture.border().width();
         xml.writeStartElement("draw", "frame", Odf.DRAW);
         xml.writeAttribute("draw", Odf.DRAW, "style-name", graphicStyle(picture));
-        xml.writeAttribute("draw", Odf.DRAW, "name", "Picture" + (++frames));
+        // Frame names must be unique; the picture's file name is kept in it.
+        String name = picture.name();
+        if (!frameNames.add(name)) name = "Picture" + (++frames);
+        frameNames.add(name);
+        xml.writeAttribute("draw", Odf.DRAW, "name", name);
         xml.writeAttribute("text", Odf.TEXT, "anchor-type", picture.placement().floats() ? "paragraph" : "as-char");
         xml.writeAttribute("svg", Odf.SVG, "width", Odf.cm(picture.width() + border));
         xml.writeAttribute("svg", Odf.SVG, "height", Odf.cm(picture.height() + border));

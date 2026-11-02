@@ -18,7 +18,7 @@ import java.util.List;
  */
 public final class PictureAttributes {
     /** Unicode's OBJECT REPLACEMENT CHARACTER, the stand-in for a picture in the text. */
-    public static final char OBJECT = '￼';
+    public static final char OBJECT = '\uFFFC';
     public static final Object PICTURE = new Key("picture");
 
     private PictureAttributes() {
@@ -33,6 +33,7 @@ public final class PictureAttributes {
         return picture(attributes) != null;
     }
 
+    // --8<-- [start:character]
     /** Attributes for a picture's character: the text format around it (for the line height) plus the picture. */
     public static SimpleAttributeSet attributes(AttributeSet around, Picture picture) {
         SimpleAttributeSet a = new SimpleAttributeSet();
@@ -52,6 +53,8 @@ public final class PictureAttributes {
         text.removeAttribute(PICTURE);
         document.insertString(offset, String.valueOf(OBJECT), attributes(text, picture));
     }
+
+    // --8<-- [end:character]
 
     /** Replaces the picture at an offset by another (a new size, placement, ...), as one undoable edit. */
     public static void replace(StyledDocument document, int offset, Picture picture) {

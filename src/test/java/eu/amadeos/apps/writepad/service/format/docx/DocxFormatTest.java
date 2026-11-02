@@ -427,7 +427,10 @@ class DocxFormatTest {
         assertTrue(part(docx, "word/_rels/document.xml.rels").contains("media/image2.png"));
         String body = part(docx, "word/document.xml");
         assertTrue(body.contains("wp:inline") && body.contains("wp:anchor") && body.contains("wrapText=\"right\""), body);
-        PictureSamples.check(format.read(docx), true, true);
+        DocumentContent read = format.read(docx);
+        PictureSamples.check(read, true, true);
+        assertEquals("red.png", eu.amadeos.apps.writepad.service.picture.PictureAttributes
+                .in(read.document().getDefaultRootElement()).get(0).picture().name(), "the file name is kept");
     }
 
     /** LibreOffice 24.2 opened the ODT amade-writepad wrote and saved it as DOCX. */

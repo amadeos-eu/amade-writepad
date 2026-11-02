@@ -117,6 +117,12 @@ public final class Picture {
         return null;
     }
 
+    /** Whether a name looks like an image's file name ({@code valley.jpg}), not like "Picture 1". */
+    public static boolean isFileName(String name) {
+        return name != null && !name.isBlank() && name.toLowerCase(java.util.Locale.ROOT)
+                .matches(".+\\.(png|jpe?g|gif|bmp|tiff?|webp)");
+    }
+
     /** The file extension that goes with the stored data: png, jpg or gif. */
     public String extension() {
         return switch (mimeType) {
