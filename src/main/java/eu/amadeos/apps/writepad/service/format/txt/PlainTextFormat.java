@@ -6,6 +6,7 @@ import eu.amadeos.apps.writepad.service.format.DocumentFormat;
 import eu.amadeos.apps.writepad.service.format.Documents;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
 import eu.amadeos.apps.writepad.service.picture.PictureAttributes;
+import eu.amadeos.apps.writepad.service.table.Tables;
 
 import javax.swing.text.BadLocationException;
 import javax.swing.text.StyledDocument;
@@ -21,7 +22,8 @@ import java.util.List;
 /**
  * Plain text, as amade-pad reads it: a byte order mark (UTF-8, UTF-16) wins; without one the bytes are
  * UTF-8 if they are valid UTF-8, else Windows-1252, else ISO-8859-1, which maps every byte. CR LF and CR
- * become line breaks. Saving writes UTF-8 with LF line ends and loses all formatting and the pictures.
+ * become line breaks. Saving writes UTF-8 with LF line ends and loses all formatting and the pictures; a
+ * table becomes one line per row with its cells separated by tabs (a cell's paragraphs joined by spaces).
  */
 public final class PlainTextFormat implements DocumentFormat {
     private static final byte[] UTF8_BOM = {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF};
@@ -60,10 +62,30 @@ public final class PlainTextFormat implements DocumentFormat {
     @Override
     public byte[] write(DocumentContent content) throws IOException {
         StyledDocument document = content.document();
+        StringBuilder out = new StringBuilder();
+        for (Tables.Block block : Tables.blocks(document)) {
+            if (block instanceof Tables.Paragraph p) {
+                out.append(text(document, p.start(), p.end()));
+                continue;
+            }
+            for (Tables.Row row : ((Tables.Table) block).rows()) {
+                StringBuilder line = new StringBuilder();
+                for (Tables.Cell cell : row.cells()) {
+                    if (!line.isEmpty() || cell.column() > 0) line.append('\t');
+                    line.append(text(document, cell.start(), cell.end()).strip().replaceAll("[\\t\n]+", " "));
+                }
+                out.append(line).append('\n');
+            }
+        }
+        return out.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    /** The text from start to end; a line break within a paragraph is a line end, pictures are left out. */
+    private static String text(StyledDocument document, int start, int end) {
         try {
-            // A line break within a paragraph is a line end in plain text, too; pictures are left out.
-            return document.getText(0, document.getLength()).replace(WritepadDocument.LINE_BREAK, '\n')
-                    .replace(String.valueOf(PictureAttributes.OBJECT), "").getBytes(StandardCharsets.UTF_8);
+            int to = Math.min(end, document.getLength());
+            return document.getText(start, Math.max(0, to - start)).replace(WritepadDocument.LINE_BREAK, '\n')
+                    .replace(String.valueOf(PictureAttributes.OBJECT), "");
         } catch (BadLocationException e) {
             throw new IllegalStateException(e);
         }

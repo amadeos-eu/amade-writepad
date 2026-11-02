@@ -4,6 +4,7 @@ import eu.amadeos.apps.writepad.domain.DocumentSettings;
 import eu.amadeos.apps.writepad.domain.Margins;
 import eu.amadeos.apps.writepad.domain.Orientation;
 import eu.amadeos.apps.writepad.domain.Picture;
+import eu.amadeos.apps.writepad.domain.TableFormat;
 import eu.amadeos.apps.writepad.domain.Units;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
@@ -12,6 +13,9 @@ import eu.amadeos.apps.writepad.service.list.ListFormat;
 import eu.amadeos.apps.writepad.service.layout.FloatingPicture;
 import eu.amadeos.apps.writepad.service.list.ListNumbering;
 import eu.amadeos.apps.writepad.service.picture.PictureAttributes;
+import eu.amadeos.apps.writepad.service.table.TableAttributes;
+import eu.amadeos.apps.writepad.service.table.TableLines;
+import eu.amadeos.apps.writepad.service.table.Tables;
 
 import javax.swing.text.AttributeSet;
 import javax.swing.text.BadLocationException;
@@ -43,7 +47,9 @@ import java.util.Objects;
  * {@code \'hh}, all others as <code>&#92;u</code> with a {@code ?} fallback, one group per run of equally formatted
  * text and a {@code \pard} per paragraph. Paragraphs are separated by {@code \par}, so reading the file
  * gives the same paragraphs back. Pictures are PNG or JPEG in {@code \pict}, floating ones in a picture
- * shape ({@code \shp}) with the text wrapping on the other side.
+ * shape ({@code \shp}) with the text wrapping on the other side. Tables are rows of {@code \intbl} paragraphs,
+ * each row described by {@code \trowd} and its cells' {@code \cellx}, each cell ending in {@code \cell} and
+ * each row in {@code \row}.
  */
 final class RtfWriter {
     private static final Charset ANSI = Charset.forName("windows-1252");
@@ -69,11 +75,14 @@ final class RtfWriter {
     }
 
     private String build() {
-        Element root = document.getDefaultRootElement();
-        for (int p = 0; p < root.getElementCount(); p++) {
-            Element paragraph = root.getElement(p);
-            paragraph(paragraph);
-            if (p < root.getElementCount() - 1) body.append("\\par\n");
+        List<Tables.Block> blocks = Tables.blocks(document);
+        for (int b = 0; b < blocks.size(); b++) {
+            if (blocks.get(b) instanceof Tables.Table table) {
+                table(table);
+            } else {
+                paragraph(((Tables.Paragraph) blocks.get(b)).element(), false);
+                if (b < blocks.size() - 1) body.append("\\par\n");
+            }
         }
         StringBuilder rtf = new StringBuilder();
         rtf.append("{\\rtf1\\ansi\\ansicpg1252\\deff0\\uc1\n");
@@ -112,7 +121,7 @@ final class RtfWriter {
         rtf.append('\n');
     }
 
-    private void paragraph(Element paragraph) {
+    private void paragraph(Element paragraph, boolean inTable) {
         AttributeSet a = paragraph.getAttributes();
         int list = 0;
         if (ListAttributes.isListItem(a)) {
@@ -125,7 +134,7 @@ final class RtfWriter {
                 body.append("\\tab}");
             }
         }
-        body.append("\\pard");
+        body.append(inTable ? "\\pard\\intbl" : "\\pard");
         switch (StyleConstants.getAlignment(a)) {
             case StyleConstants.ALIGN_CENTER -> body.append("\\qc");
             case StyleConstants.ALIGN_RIGHT -> body.append("\\qr");
@@ -179,6 +188,72 @@ final class RtfWriter {
         text(body, text);
         body.append('}');
     }
+
+    // --8<-- [start:table]
+    /**
+     * A table, row by row: {@code \trowd} with the alignment, the padding and the heading mark, then per cell
+     * its lines, background and vertical alignment and its right edge ({@code \cellx}, in twips from the
+     * table's left edge); then the cells' paragraphs, each cell ending in {@code \cell} and the row in
+     * {@code \row}.
+     */
+    private void table(Tables.Table table) {
+        TableFormat f = table.format();
+        int columns = Math.max(f.columns(), table.columns());
+        int rows = table.rows().size();
+        double scale = Math.min(1, settings.contentWidth() / f.totalWidth());
+        int pad = Units.pointsToTwips(f.padding());
+        for (int r = 0; r < rows; r++) {
+            body.append("\\trowd\\trgaph").append(pad).append("\\trleft0").append(switch (f.alignment()) {
+                case LEFT -> "\\trql";
+                case CENTER -> "\\trqc";
+                case RIGHT -> "\\trqr";
+            });
+            for (String side : new String[]{"l", "t", "r", "b"}) {
+                body.append("\\trpadd").append(side).append(pad).append("\\trpaddf").append(side).append(3);
+            }
+            if (r == 0 && f.repeatHeader() && rows > 1) body.append("\\trhdr");
+            body.append('\n');
+            List<Tables.Cell> cells = table.rows().get(r).cells();
+            double right = 0;
+            for (int c = 0; c < columns; c++) {
+                AttributeSet a = c < cells.size() ? cells.get(c).first().getAttributes() : null;
+                TableLines.Edges edges = TableLines.edges(f.lines(), r, rows, c, columns);
+                border("\\clbrdrt", edges.top(), f);
+                border("\\clbrdrl", edges.left(), f);
+                border("\\clbrdrb", edges.bottom(), f);
+                border("\\clbrdrr", edges.right(), f);
+                Color background = TableAttributes.background(a);
+                if (background != null) body.append("\\clcbpat").append(color(background));
+                switch (TableAttributes.verticalAlignment(a)) {
+                    case CENTER -> body.append("\\clvertalc");
+                    case BOTTOM -> body.append("\\clvertalb");
+                    case TOP -> body.append("\\clvertalt");
+                }
+                right += f.width(c) * scale;
+                body.append("\\cellx").append(Units.pointsToTwips(right)).append('\n');
+            }
+            for (int c = 0; c < columns; c++) {
+                if (c < cells.size()) {
+                    List<Element> paragraphs = cells.get(c).paragraphs();
+                    for (int p = 0; p < paragraphs.size(); p++) {
+                        paragraph(paragraphs.get(p), true);
+                        body.append(p < paragraphs.size() - 1 ? "\\par\n" : "\\cell\n");
+                    }
+                } else {
+                    body.append("\\pard\\intbl\\cell\n");
+                }
+            }
+            body.append("\\row\n");
+        }
+    }
+
+    /** A cell edge: a single line of the table's width (in twips) and colour, or nothing. */
+    private void border(String edge, boolean on, TableFormat f) {
+        if (!on || f.lineWidth() <= 0) return;
+        body.append(edge).append("\\brdrs\\brdrw").append(Math.max(1, Math.min(75, Units.pointsToTwips(f.lineWidth()))))
+                .append("\\brdrcf").append(color(f.lineColor()));
+    }
+    // --8<-- [end:table]
 
     // --8<-- [start:pictures]
     /**

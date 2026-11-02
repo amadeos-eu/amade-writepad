@@ -3,6 +3,7 @@ package eu.amadeos.apps.writepad.service.format.txt;
 import eu.amadeos.apps.writepad.domain.DocumentSettings;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.Documents;
+import eu.amadeos.apps.writepad.service.format.TableSamples;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.text.BadLocationException;
@@ -72,5 +73,11 @@ class PlainTextFormatTest {
         System.arraycopy(a, 0, r, 0, a.length);
         System.arraycopy(b, 0, r, a.length, b.length);
         return r;
+    }
+
+    @Test
+    void tablesBecomeTabSeparatedRows() throws Exception {
+        assertEquals("Before\nItem\tPrice\tNote\nApples\t1.20\tfresh\nPears Williams\t2.10\tripe\nAfter",
+                new String(format.write(TableSamples.document()), StandardCharsets.UTF_8));
     }
 }

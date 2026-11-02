@@ -4,6 +4,7 @@ import eu.amadeos.apps.writepad.domain.DocumentSettings;
 import eu.amadeos.apps.writepad.domain.Margins;
 import eu.amadeos.apps.writepad.domain.Orientation;
 import eu.amadeos.apps.writepad.domain.Picture;
+import eu.amadeos.apps.writepad.domain.TableFormat;
 import eu.amadeos.apps.writepad.domain.Units;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.Documents;
@@ -11,6 +12,10 @@ import eu.amadeos.apps.writepad.service.format.WritepadDocument;
 import eu.amadeos.apps.writepad.service.list.ListAttributes;
 import eu.amadeos.apps.writepad.service.list.ListFormat;
 import eu.amadeos.apps.writepad.service.picture.PictureAttributes;
+import eu.amadeos.apps.writepad.service.table.TableAttributes;
+import eu.amadeos.apps.writepad.service.table.TableBuilder;
+import eu.amadeos.apps.writepad.service.table.TableLines;
+import eu.amadeos.apps.writepad.service.table.Tables;
 import eu.amadeos.commons.print.PaperSize;
 
 import javax.swing.text.BadLocationException;
@@ -35,7 +40,8 @@ import java.util.Set;
  * Reads RTF into a styled document: text, fonts, sizes, bold, italic, underline, strike-through,
  * super-/subscript, colours, alignment, indents, spacing, line spacing, tab stops, lists ({@code \listtable}
  * and WordPad's {@code \pn}), PNG and JPEG pictures ({@code \pict} in the line, {@code \shp} picture shapes
- * floating at the left or right) and the page setup. Everything else (other picture formats, drawings,
+ * floating at the left or right), tables ({@code \trowd}, {@code \cellx}, {@code \cell}, {@code \row}; merged
+ * cells come in split, a table in a table as its paragraphs) and the page setup. Everything else (other picture formats, drawings,
  * headers, footnotes, fields' instructions, style sheets, document info) is skipped, so unknown content never
  * breaks the import or appears as garbage.
  *
@@ -52,7 +58,8 @@ final class RtfReader {
             "mmathPr", "upr", "filetbl", "revtbl", "protusertbl", "listtext", "userprops", "docvar", "template",
             "background", "shp", "sp", "do", "atnid", "atnauthor", "comment", "keywords", "operator", "title",
             "subject", "author", "company", "doccomm", "hlinkbase", "xe", "tc", "txe", "pgdsctbl", "ftnsep",
-            "ftnsepc", "aftnsep", "aftnsepc", "wgrffmtfilter", "fchars", "lchars", "passwordhash");
+            "ftnsepc", "aftnsep", "aftnsepc", "wgrffmtfilter", "fchars", "lchars", "passwordhash", "nesttableprops",
+            "nonesttables", "tblind");
 
     private static final Map<Integer, String> CHARSET_CODEPAGES = Map.ofEntries(
             Map.entry(0, "windows-1252"), Map.entry(2, "windows-1252"), Map.entry(77, "x-MacRoman"),
@@ -124,6 +131,8 @@ final class RtfReader {
         /** WordPad's {@code \pn} lists: the mark, null for none, and the level. */
         ListFormat pnFormat;
         int pnLevel;
+        /** {@code \intbl}: the paragraph is in a table's cell. */
+        boolean inTable;
 
         @Override
         public State clone() {
@@ -151,6 +160,7 @@ final class RtfReader {
             tabLeader = TabStop.LEAD_NONE;
             listOverride = listLevel = pnLevel = 0;
             pnFormat = null;
+            inTable = false;
         }
 
         /** {@code \tx} or {@code \tb}: a stop with the alignment and leader given just before it. */
@@ -161,6 +171,42 @@ final class RtfReader {
             tabAlignment = TabStop.ALIGN_LEFT;
             tabLeader = TabStop.LEAD_NONE;
         }
+    }
+
+    /** A line of a cell or row: on or off, its width in twips and its colour's number. */
+    private static final class Border {
+        boolean on;
+        int width = 10;
+        int color;
+    }
+
+    /** A cell as {@code \trowd} describes it, up to its {@code \cellx}. */
+    private static final class CellDef {
+        int right;
+        int background;
+        int padding = -1;
+        TableAttributes.VerticalAlignment alignment = TableAttributes.VerticalAlignment.TOP;
+        final Border top = new Border();
+        final Border left = new Border();
+        final Border bottom = new Border();
+        final Border right_ = new Border();
+    }
+
+    /** The row being described: its cells, its left edge, alignment, padding, heading mark and lines. */
+    private static final class RowDef {
+        final List<CellDef> cells = new ArrayList<>();
+        CellDef next = new CellDef();
+        int left;
+        TableFormat.Alignment alignment = TableFormat.Alignment.LEFT;
+        int gap = -1;
+        int padding = -1;
+        boolean header;
+        final Border top = new Border();
+        final Border left_ = new Border();
+        final Border bottom = new Border();
+        final Border right = new Border();
+        final Border insideH = new Border();
+        final Border insideV = new Border();
     }
 
     private record FontEntry(String name, Charset charset) {
@@ -217,6 +263,15 @@ final class RtfReader {
     private int pnLevel;
     /** The list of the last paragraph if it was a WordPad list item, so that the next one continues it. */
     private int lastPnList;
+
+    // Tables: the row described last, the table being read, its first row, the cell's first paragraph
+    private RowDef rowDef = new RowDef();
+    private Border border;
+    private TableBuilder table;
+    private RowDef firstRow;
+    private boolean tableHeader;
+    private int cellFrom = -1;
+    private int cellInRow;
 
     // Page setup
     private int paperWidth = -1;
@@ -275,6 +330,7 @@ final class RtfReader {
             flushBytes();
             flushText();
             finishParagraph(false);
+            endTable();
         }
         removeTrailingEmptyParagraph();
         return new DocumentContent(document, settings());
@@ -482,8 +538,10 @@ final class RtfReader {
             // text
             case "par", "sect" -> paragraph();
             case "line" -> lineBreak();
-            case "row" -> paragraph();
-            case "tab", "cell" -> literal('\t');
+            case "cell" -> cell();
+            case "row" -> row();
+            case "nestcell", "nestrow" -> paragraph();
+            case "tab" -> literal('\t');
             case "emdash" -> literal('—');
             case "endash" -> literal('–');
             case "emspace", "enspace", "qmspace" -> literal(' ');
@@ -533,13 +591,147 @@ final class RtfReader {
             case "tx", "tb" -> {
                 if (hasParameter && parameter >= 0) state.addTab(parameter);
             }
+            case "intbl" -> state.inTable = true;
+            case "itap" -> state.inTable = parameter > 0;
             case "ls" -> state.listOverride = parameter;
             case "ilvl" -> state.listLevel = Math.max(0, Math.min(ListAttributes.MAX_LEVEL, parameter));
+            default -> tableWord(word, hasParameter, parameter);
+        }
+    }
+
+    // ---------------------------------------------------------------- tables
+
+    // --8<-- [start:table]
+    /** The words that describe a table's row and its cells. */
+    private void tableWord(String word, boolean hasParameter, int parameter) {
+        CellDef next = rowDef.next;
+        switch (word) {
+            case "trowd" -> {
+                rowDef = new RowDef();
+                border = null;
+            }
+            case "trleft" -> rowDef.left = parameter;
+            case "trgaph" -> rowDef.gap = Math.max(0, parameter);
+            case "trpaddl" -> rowDef.padding = Math.max(0, parameter);
+            case "trqc" -> rowDef.alignment = TableFormat.Alignment.CENTER;
+            case "trqr" -> rowDef.alignment = TableFormat.Alignment.RIGHT;
+            case "trql" -> rowDef.alignment = TableFormat.Alignment.LEFT;
+            case "trhdr" -> rowDef.header = true;
+            case "trbrdrt" -> border = rowDef.top;
+            case "trbrdrl" -> border = rowDef.left_;
+            case "trbrdrb" -> border = rowDef.bottom;
+            case "trbrdrr" -> border = rowDef.right;
+            case "trbrdrh" -> border = rowDef.insideH;
+            case "trbrdrv" -> border = rowDef.insideV;
+            case "clbrdrt" -> border = next.top;
+            case "clbrdrl" -> border = next.left;
+            case "clbrdrb" -> border = next.bottom;
+            case "clbrdrr" -> border = next.right_;
+            case "brdrnone", "brdrnil" -> {
+                if (border != null) border.on = false;
+            }
+            case "brdrw" -> {
+                if (border != null && hasParameter) border.width = Math.max(0, parameter);
+            }
+            case "brdrcf" -> {
+                if (border != null) border.color = parameter;
+            }
+            case "clcbpat" -> next.background = parameter;
+            case "clpadl" -> next.padding = Math.max(0, parameter);
+            case "clvertalt" -> next.alignment = TableAttributes.VerticalAlignment.TOP;
+            case "clvertalc" -> next.alignment = TableAttributes.VerticalAlignment.CENTER;
+            case "clvertalb" -> next.alignment = TableAttributes.VerticalAlignment.BOTTOM;
+            case "cellx" -> {
+                next.right = parameter;
+                rowDef.cells.add(next);
+                rowDef.next = new CellDef();
+                border = null;
+            }
             default -> {
-                // unknown or unsupported: ignored
+                // \brdrs, \brdrdb, \brdrth and the other line styles: a line
+                if (border != null && word.startsWith("brdr") && word.length() > 4) border.on = true;
             }
         }
     }
+
+    /**
+     * {@code \cell}: the paragraph ends the cell. The cell is the paragraphs since the last cell (or the
+     * first {@code \intbl} paragraph), with the background and alignment of its {@code \cellx} entry.
+     */
+    private void cell() {
+        flushBytes();
+        flushText();
+        if (cellFrom < 0) cellFrom = paragraphStart;
+        insert("\n", state);
+        finishParagraph(true);
+        if (table == null) {
+            table = new TableBuilder(document);
+            firstRow = rowDef;
+            tableHeader = false;
+            cellInRow = 0;
+        }
+        if (cellInRow == 0) table.row();
+        CellDef def = cellInRow < rowDef.cells.size() ? rowDef.cells.get(cellInRow) : null;
+        Color background = def != null && def.background > 0 && def.background < colors.size()
+                ? colors.get(def.background) : null;
+        table.cellStart(cellFrom);
+        table.cellEnd(background, def != null ? def.alignment : null, characterAttributes(state));
+        cellInRow++;
+        cellFrom = -1;
+    }
+
+    /** {@code \row}: the row is complete; a heading row at the top repeats on each page. */
+    private void row() {
+        flushBytes();
+        flushText();
+        if (table == null) return;
+        if (table.rows() == 1 && rowDef.header) tableHeader = true;
+        cellInRow = 0;
+        cellFrom = -1;
+    }
+
+    /** Makes the paragraphs read since the table began a table, in the format of its first row. */
+    private void endTable() {
+        if (table == null) return;
+        TableBuilder done = table;
+        table = null;
+        cellFrom = -1;
+        cellInRow = 0;
+        RowDef first = firstRow;
+        List<Double> widths = new ArrayList<>();
+        int x = first.left;
+        for (CellDef cell : first.cells) {
+            widths.add(Math.max(TableFormat.MIN_COLUMN, Units.twipsToPoints(cell.right - x)));
+            x = Math.max(x, cell.right);
+        }
+        int columns = Math.max(1, done.columns());
+        double[] w = new double[columns];
+        for (int c = 0; c < columns; c++) {
+            w[c] = c < widths.size() ? widths.get(c) : settings().contentWidth() / columns;
+        }
+        TableFormat f = TableFormat.of(w).withRepeatHeader(tableHeader).withAlignment(first.alignment);
+        CellDef a = first.cells.isEmpty() ? new CellDef() : first.cells.getFirst();
+        CellDef b = first.cells.size() > 1 ? first.cells.get(1) : null;
+        Border left = a.left.on ? a.left : first.left_;
+        Border top = a.top.on ? a.top : first.top;
+        Border insideV = a.right_.on ? a.right_ : b != null && b.left.on ? b.left : first.insideV;
+        Border insideH = a.bottom.on ? a.bottom : first.insideH;
+        f = f.withLines(TableLines.guess(done.columns() > 1 && insideV.on, done.rows() > 1 && insideH.on,
+                left.on, top.on));
+        for (Border line : new Border[]{left, top, insideV, insideH}) {
+            if (!line.on) continue;
+            f = f.withLineWidth((float) Math.max(0.25, Units.twipsToPoints(line.width)));
+            if (line.color > 0 && line.color < colors.size() && colors.get(line.color) != null) {
+                f = f.withLineColor(colors.get(line.color));
+            }
+            break;
+        }
+        // LibreOffice writes the padding per cell, Word per row, older programs only the gap between cells.
+        int padding = a.padding > 0 ? a.padding : first.padding > 0 ? first.padding : first.gap;
+        if (padding >= 0) f = f.withPadding(Units.twipsToPoints(padding));
+        done.finish(f);
+    }
+    // --8<-- [end:table]
 
     private void endGroup() {
         flushBytes();
@@ -550,6 +742,7 @@ final class RtfReader {
             // The end of the document: the last paragraph keeps the formatting in effect inside it.
             flushText();
             finishParagraph(false);
+            endTable();
             rootClosed = true;
         }
         if (inner.destination == Destination.TEXT && !stack.isEmpty() && differs(inner, stack.peek())) flushText();
@@ -850,8 +1043,10 @@ final class RtfReader {
     private void paragraph() {
         flushBytes();
         flushText();
+        if (state.inTable && cellFrom < 0) cellFrom = paragraphStart;
         insert("\n", state);
         finishParagraph(true);
+        if (!state.inTable) endTable();
     }
 
     /** {@code \line}: a line break within the paragraph. */
@@ -882,7 +1077,11 @@ final class RtfReader {
     private void removeTrailingEmptyParagraph() {
         int length = document.getLength();
         try {
-            if (length > 0 && document.getText(length - 1, 1).equals("\n")) document.remove(length - 1, 1);
+            // A table at the end keeps the empty paragraph after it: every cell ends in a paragraph of its own.
+            if (length > 0 && document.getText(length - 1, 1).equals("\n")
+                    && !Tables.inTable(document, length - 1)) {
+                document.remove(length - 1, 1);
+            }
         } catch (BadLocationException e) {
             throw new IllegalStateException(e);
         }

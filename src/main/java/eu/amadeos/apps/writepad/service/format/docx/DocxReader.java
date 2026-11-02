@@ -8,6 +8,10 @@ import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.Documents;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
 import eu.amadeos.apps.writepad.service.list.ListAttributes;
+import eu.amadeos.apps.writepad.domain.TableFormat;
+import eu.amadeos.apps.writepad.service.table.TableAttributes;
+import eu.amadeos.apps.writepad.service.table.TableBuilder;
+import eu.amadeos.apps.writepad.service.table.TableLines;
 import eu.amadeos.apps.writepad.service.list.ListFormat;
 import eu.amadeos.apps.writepad.service.picture.PictureAttributes;
 import eu.amadeos.commons.print.PaperSize;
@@ -102,6 +106,8 @@ final class DocxReader {
     private final StyledDocument document = Documents.newDocument();
     private final Props defaultParagraph = new Props();
     private final Props defaultRun = new Props();
+    /** How many tables the reader is in; tables in tables come in as paragraphs. */
+    private int tableDepth;
     private final Map<String, Style> paragraphStyles = new HashMap<>();
     private final Map<String, Style> characterStyles = new HashMap<>();
     private String defaultParagraphStyle;
@@ -557,11 +563,211 @@ final class DocxReader {
             switch (child) {
                 case "p" -> paragraph(r);
                 case "sectPr" -> section(r);
-                case "tbl", "tr", "tc", "sdt", "sdtContent", "customXml", "ins", "moveTo" -> block(r);
+                case "tbl" -> {
+                    if (tableDepth == 0) table(r);
+                    else block(r);
+                }
+                case "tr", "tc", "sdt", "sdtContent", "customXml", "ins", "moveTo" -> block(r);
                 default -> skip(r);
             }
         });
     }
+
+    // --8<-- [start:table]
+    /** A table's lines as read: the table's own, then the first cells' where they set them. */
+    private static final class TableRead {
+        final List<Double> grid = new ArrayList<>();
+        final Map<String, String> borders = new HashMap<>();
+        double width = Double.NaN;
+        double padding = Double.NaN;
+        String jc;
+        boolean header;
+        boolean headerDone;
+        final List<Map<String, String>> cellBorders = new ArrayList<>();
+    }
+
+    /**
+     * A table: its paragraphs go into the document cell by cell and become a table at its end. A merged cell
+     * is split again (the text stays in the first part), a table in a cell comes in as its paragraphs, and
+     * rows marked as heading at the top repeat.
+     */
+    private void table(XMLStreamReader r) throws XMLStreamException {
+        flushText();
+        tableDepth++;
+        TableBuilder builder = new TableBuilder(document);
+        TableRead t = new TableRead();
+        AttributeSet empty = characterAttributes(runBase(new Props()));
+        children(r, child -> {
+            switch (child) {
+                case "tblPr" -> tableProperties(r, t);
+                case "tblGrid" -> children(r, col -> {
+                    if (col.equals("gridCol")) t.grid.add(Ooxml.points(intVal(val(r, "w"), 0)));
+                    skip(r);
+                });
+                case "tr" -> {
+                    builder.row();
+                    boolean[] headerRow = {false};
+                    children(r, part -> {
+                        switch (part) {
+                            case "trPr" -> children(r, p -> {
+                                if (p.equals("tblHeader") && isOn(val(r, "val"))) headerRow[0] = true;
+                                skip(r);
+                            });
+                            case "tc" -> cell(r, builder, t, empty);
+                            case "sdt", "customXml" -> children(r, inner -> {
+                                if (inner.equals("sdtContent")) children(r, tc -> {
+                                    if (tc.equals("tc")) cell(r, builder, t, empty);
+                                    else skip(r);
+                                });
+                                else skip(r);
+                            });
+                            default -> skip(r);
+                        }
+                    });
+                    if (builder.rows() == 1 && headerRow[0]) t.header = true;
+                }
+                default -> block(r);
+            }
+        });
+        tableDepth--;
+        builder.finish(tableFormat(t, builder));
+    }
+
+    private void tableProperties(XMLStreamReader r, TableRead t) throws XMLStreamException {
+        children(r, p -> {
+            switch (p) {
+                case "tblW" -> {
+                    if ("dxa".equals(val(r, "type"))) t.width = Ooxml.points(intVal(val(r, "w"), 0));
+                    skip(r);
+                }
+                case "jc" -> {
+                    t.jc = val(r, "val");
+                    skip(r);
+                }
+                case "tblBorders" -> borders(r, t.borders);
+                case "tblCellMar" -> children(r, side -> {
+                    if ((side.equals("left") || side.equals("start")) && Double.isNaN(t.padding)) {
+                        t.padding = Ooxml.points(intVal(val(r, "w"), 0));
+                    }
+                    skip(r);
+                });
+                default -> skip(r);
+            }
+        });
+    }
+
+    /** Border elements as "side" -> "on/off width-in-eighths colour". */
+    private static void borders(XMLStreamReader r, Map<String, String> into) throws XMLStreamException {
+        children(r, side -> {
+            String name = switch (side) {
+                case "start" -> "left";
+                case "end" -> "right";
+                default -> side;
+            };
+            String v = val(r, "val");
+            boolean on = v != null && !v.equals("nil") && !v.equals("none");
+            into.put(name, (on ? "on " : "off ") + intVal(val(r, "sz"), 4) + " " + val(r, "color"));
+            skip(r);
+        });
+    }
+
+    private void cell(XMLStreamReader r, TableBuilder builder, TableRead t, AttributeSet empty)
+            throws XMLStreamException {
+        int[] span = {1};
+        Color[] background = {null};
+        TableAttributes.VerticalAlignment[] v = {TableAttributes.VerticalAlignment.TOP};
+        Map<String, String> borders = new HashMap<>();
+        builder.cellStart();
+        children(r, child -> {
+            if (child.equals("tcPr")) {
+                children(r, p -> {
+                    switch (p) {
+                        case "gridSpan" -> {
+                            span[0] = Math.max(1, Math.min(64, intVal(val(r, "val"), 1)));
+                            skip(r);
+                        }
+                        case "shd" -> {
+                            String fill = val(r, "fill");
+                            if (fill != null && fill.matches("[0-9a-fA-F]{6}")) {
+                                background[0] = new Color(Integer.parseInt(fill, 16));
+                            }
+                            skip(r);
+                        }
+                        case "vAlign" -> {
+                            v[0] = switch (String.valueOf(val(r, "val"))) {
+                                case "center" -> TableAttributes.VerticalAlignment.CENTER;
+                                case "bottom" -> TableAttributes.VerticalAlignment.BOTTOM;
+                                default -> TableAttributes.VerticalAlignment.TOP;
+                            };
+                            skip(r);
+                        }
+                        case "tcBorders" -> borders(r, borders);
+                        default -> skip(r);
+                    }
+                });
+            } else if (child.equals("p")) {
+                paragraph(r);
+            } else if (child.equals("tbl") || child.equals("sdt") || child.equals("customXml")) {
+                // A table in a cell comes in as its paragraphs (tableDepth is above 0 here).
+                block(r);
+            } else {
+                skip(r);
+            }
+        });
+        flushText();
+        if (t.cellBorders.size() < 2) t.cellBorders.add(borders);
+        builder.cellEnd(background[0], v[0], empty);
+        for (int i = 1; i < span[0]; i++) builder.emptyCell(empty);
+    }
+
+    private TableFormat tableFormat(TableRead t, TableBuilder builder) {
+        int columns = Math.max(1, Math.max(builder.columns(), t.grid.size()));
+        double[] w = new double[columns];
+        double known = 0;
+        for (double g : t.grid) known += g;
+        double fallback = !Double.isNaN(t.width) && t.width > known && columns > t.grid.size()
+                ? (t.width - known) / (columns - t.grid.size())
+                : settings().contentWidth() / columns;
+        for (int c = 0; c < columns; c++) w[c] = c < t.grid.size() && t.grid.get(c) > 0 ? t.grid.get(c) : fallback;
+        TableFormat f = TableFormat.of(w).withRepeatHeader(t.header).withAlignment(switch (String.valueOf(t.jc)) {
+            case "center" -> TableFormat.Alignment.CENTER;
+            case "right", "end" -> TableFormat.Alignment.RIGHT;
+            default -> TableFormat.Alignment.LEFT;
+        });
+        Map<String, String> first = t.cellBorders.isEmpty() ? Map.of() : t.cellBorders.getFirst();
+        Map<String, String> second = t.cellBorders.size() > 1 ? t.cellBorders.get(1) : Map.of();
+        String left = first.getOrDefault("left", t.borders.get("left"));
+        String top = first.getOrDefault("top", t.borders.get("top"));
+        String insideV = first.containsKey("right") ? first.get("right")
+                : second.getOrDefault("left", t.borders.get("insideV"));
+        String insideH = first.getOrDefault("bottom", t.borders.get("insideH"));
+        f = f.withLines(TableLines.guess(builder.columns() > 1 && on(insideV), builder.rows() > 1 && on(insideH),
+                on(left), on(top)));
+        for (String line : new String[]{left, top, insideV, insideH}) {
+            if (!on(line)) continue;
+            String[] parts = line.split(" ");
+            f = f.withLineWidth(Integer.parseInt(parts[1]) / 8f);
+            if (parts.length > 2 && parts[2].matches("[0-9a-fA-F]{6}")) {
+                f = f.withLineColor(new Color(Integer.parseInt(parts[2], 16)));
+            }
+            break;
+        }
+        if (!Double.isNaN(t.padding)) f = f.withPadding(t.padding);
+        return f;
+    }
+
+    private static boolean on(String border) {
+        return border != null && border.startsWith("on ");
+    }
+
+    private static int intVal(String value, int fallback) {
+        try {
+            return value == null ? fallback : (int) Math.round(Double.parseDouble(value.strip()));
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+    // --8<-- [end:table]
 
     private void paragraph(XMLStreamReader r) throws XMLStreamException {
         flushText();

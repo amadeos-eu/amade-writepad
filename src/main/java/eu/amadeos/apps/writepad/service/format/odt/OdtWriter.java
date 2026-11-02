@@ -10,6 +10,10 @@ import eu.amadeos.apps.writepad.service.format.Documents;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
 import eu.amadeos.apps.writepad.service.layout.TabStops;
 import eu.amadeos.apps.writepad.service.list.ListAttributes;
+import eu.amadeos.apps.writepad.domain.TableFormat;
+import eu.amadeos.apps.writepad.service.table.TableAttributes;
+import eu.amadeos.apps.writepad.service.table.TableLines;
+import eu.amadeos.apps.writepad.service.table.Tables;
 import eu.amadeos.apps.writepad.service.list.ListFormat;
 
 import javax.swing.text.AttributeSet;
@@ -74,6 +78,12 @@ final class OdtWriter {
     private final Map<String, String> graphicStyles = new LinkedHashMap<>();
     private final Map<String, Map<String, String>> graphicProps = new HashMap<>();
     private int frames;
+    /** Tables by name, their column widths, and cell styles by their properties. */
+    private final Map<String, TableFormat> tableStyles = new LinkedHashMap<>();
+    private final Map<String, Double> columnStyles = new LinkedHashMap<>();
+    private final Map<String, String> cellStyles = new LinkedHashMap<>();
+    private final Map<String, Map<String, String>> cellProps = new HashMap<>();
+    private int tables;
     private final java.util.Set<String> frameNames = new java.util.HashSet<>();
 
     /** The paragraph formatting of one P style. */
@@ -160,6 +170,7 @@ final class OdtWriter {
         discard.close();
         frames = 0;
         frameNames.clear();
+        tables = 0;
 
         root(xml, "document-content");
         fontFaces(xml);
@@ -175,6 +186,7 @@ final class OdtWriter {
             xml.writeEndElement();
         }
         for (Map.Entry<Integer, Integer> list : listNumbers.entrySet()) listStyle(xml, list.getKey(), list.getValue());
+        tableStyles(xml);
         for (Map.Entry<String, String> style : graphicStyles.entrySet()) {
             xml.writeStartElement("style", "style", Odf.STYLE);
             xml.writeAttribute("style", Odf.STYLE, "name", style.getValue());
@@ -194,20 +206,142 @@ final class OdtWriter {
     }
 
     private void paragraphs(XMLStreamWriter xml) throws XMLStreamException {
-        Element root = document.getDefaultRootElement();
         ListWriter lists = new ListWriter(xml);
-        for (int p = 0; p < root.getElementCount(); p++) {
-            Element paragraph = root.getElement(p);
-            AttributeSet a = paragraph.getAttributes();
-            if (ListAttributes.isListItem(a)) {
-                lists.item(ListAttributes.list(a), ListAttributes.level(a), listNumber(a));
-            } else {
+        for (Tables.Block block : Tables.blocks(document)) {
+            if (block instanceof Tables.Table table) {
                 lists.closeAll();
+                table(xml, table);
+            } else {
+                listParagraph(xml, lists, ((Tables.Paragraph) block).element());
             }
-            paragraph(xml, paragraph);
         }
         lists.closeAll();
     }
+
+    private void listParagraph(XMLStreamWriter xml, ListWriter lists, Element paragraph) throws XMLStreamException {
+        AttributeSet a = paragraph.getAttributes();
+        if (ListAttributes.isListItem(a)) {
+            lists.item(ListAttributes.list(a), ListAttributes.level(a), listNumber(a));
+        } else {
+            lists.closeAll();
+        }
+        paragraph(xml, paragraph);
+    }
+
+    // --8<-- [start:table]
+    /**
+     * A table: its columns with their widths, the heading row inside {@code table:table-header-rows} if it
+     * repeats, and the cells with their paragraphs. The lines go to each cell's style, as LibreOffice keeps
+     * them.
+     */
+    private void table(XMLStreamWriter xml, Tables.Table table) throws XMLStreamException {
+        String name = "Table" + (++tables);
+        TableFormat format = table.format();
+        tableStyles.put(name, format);
+        int columns = Math.max(format.columns(), table.columns());
+        xml.writeStartElement("table", "table", Odf.TABLE);
+        xml.writeAttribute("table", Odf.TABLE, "name", name);
+        xml.writeAttribute("table", Odf.TABLE, "style-name", name);
+        for (int c = 0; c < columns; c++) {
+            String column = name + "." + columnName(c);
+            columnStyles.put(column, format.width(c));
+            xml.writeEmptyElement("table", "table-column", Odf.TABLE);
+            xml.writeAttribute("table", Odf.TABLE, "style-name", column);
+        }
+        List<Tables.Row> rows = table.rows();
+        for (int r = 0; r < rows.size(); r++) {
+            boolean header = r == 0 && format.repeatHeader() && rows.size() > 1;
+            if (header) xml.writeStartElement("table", "table-header-rows", Odf.TABLE);
+            xml.writeStartElement("table", "table-row", Odf.TABLE);
+            List<Tables.Cell> cells = rows.get(r).cells();
+            for (int c = 0; c < columns; c++) {
+                Tables.Cell cell = c < cells.size() ? cells.get(c) : null;
+                xml.writeStartElement("table", "table-cell", Odf.TABLE);
+                AttributeSet a = cell == null ? null : cell.first().getAttributes();
+                xml.writeAttribute("table", Odf.TABLE, "style-name",
+                        cellStyle(format, TableLines.edges(format.lines(), r, rows.size(), c, columns), a));
+                xml.writeAttribute("office", Odf.OFFICE, "value-type", "string");
+                if (cell == null) {
+                    xml.writeEmptyElement("text", "p", Odf.TEXT);
+                } else {
+                    ListWriter lists = new ListWriter(xml);
+                    for (Element p : cell.paragraphs()) listParagraph(xml, lists, p);
+                    lists.closeAll();
+                }
+                xml.writeEndElement();
+            }
+            xml.writeEndElement();
+            if (header) xml.writeEndElement();
+        }
+        xml.writeEndElement();
+    }
+
+    /** A, B, ..., Z, AA, AB: column names as LibreOffice gives them. */
+    private static String columnName(int c) {
+        StringBuilder s = new StringBuilder();
+        for (int n = c + 1; n > 0; n = (n - 1) / 26) s.insert(0, (char) ('A' + (n - 1) % 26));
+        return s.toString();
+    }
+
+    private String cellStyle(TableFormat format, TableLines.Edges edges, AttributeSet cell) {
+        Map<String, String> p = new LinkedHashMap<>();
+        java.awt.Color background = TableAttributes.background(cell);
+        p.put("fo:background-color", background == null ? "transparent" : hex(background));
+        p.put("fo:padding", Odf.cm(format.padding()));
+        String line = Odf.pt(format.lineWidth()) + " solid " + hex(format.lineColor());
+        boolean visible = format.lineWidth() > 0;
+        p.put("fo:border-left", visible && edges.left() ? line : "none");
+        p.put("fo:border-right", visible && edges.right() ? line : "none");
+        p.put("fo:border-top", visible && edges.top() ? line : "none");
+        p.put("fo:border-bottom", visible && edges.bottom() ? line : "none");
+        TableAttributes.VerticalAlignment v = TableAttributes.verticalAlignment(cell);
+        if (v != TableAttributes.VerticalAlignment.TOP) {
+            p.put("style:vertical-align", v == TableAttributes.VerticalAlignment.CENTER ? "middle" : "bottom");
+        }
+        return cellStyles.computeIfAbsent(p.toString(), k -> {
+            cellProps.put(k, p);
+            return "Cell" + (cellStyles.size() + 1);
+        });
+    }
+
+    private static String hex(java.awt.Color c) {
+        return String.format("#%06x", c.getRGB() & 0xFFFFFF);
+    }
+
+    private void tableStyles(XMLStreamWriter xml) throws XMLStreamException {
+        for (Map.Entry<String, TableFormat> table : tableStyles.entrySet()) {
+            TableFormat f = table.getValue();
+            double width = Math.min(f.totalWidth(), settings.contentWidth());
+            xml.writeStartElement("style", "style", Odf.STYLE);
+            xml.writeAttribute("style", Odf.STYLE, "name", table.getKey());
+            xml.writeAttribute("style", Odf.STYLE, "family", "table");
+            xml.writeEmptyElement("style", "table-properties", Odf.STYLE);
+            xml.writeAttribute("style", Odf.STYLE, "width", Odf.cm(width));
+            xml.writeAttribute("table", Odf.TABLE, "align", switch (f.alignment()) {
+                case LEFT -> "left";
+                case CENTER -> "center";
+                case RIGHT -> "right";
+            });
+            xml.writeEndElement();
+        }
+        for (Map.Entry<String, Double> column : columnStyles.entrySet()) {
+            xml.writeStartElement("style", "style", Odf.STYLE);
+            xml.writeAttribute("style", Odf.STYLE, "name", column.getKey());
+            xml.writeAttribute("style", Odf.STYLE, "family", "table-column");
+            xml.writeEmptyElement("style", "table-column-properties", Odf.STYLE);
+            xml.writeAttribute("style", Odf.STYLE, "column-width", Odf.cm(column.getValue()));
+            xml.writeEndElement();
+        }
+        for (Map.Entry<String, String> cell : cellStyles.entrySet()) {
+            xml.writeStartElement("style", "style", Odf.STYLE);
+            xml.writeAttribute("style", Odf.STYLE, "name", cell.getValue());
+            xml.writeAttribute("style", Odf.STYLE, "family", "table-cell");
+            xml.writeEmptyElement("style", "table-cell-properties", Odf.STYLE);
+            attributes(xml, cellProps.get(cell.getKey()));
+            xml.writeEndElement();
+        }
+    }
+    // --8<-- [end:table]
 
     /** Opens and closes {@code text:list} and {@code text:list-item} elements around the paragraphs. */
     private final class ListWriter {
