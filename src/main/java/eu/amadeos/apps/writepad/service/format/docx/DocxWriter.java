@@ -6,6 +6,8 @@ import eu.amadeos.apps.writepad.domain.Margins;
 import eu.amadeos.apps.writepad.domain.Orientation;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.Documents;
+import eu.amadeos.apps.writepad.service.style.ParagraphStyle;
+import eu.amadeos.apps.writepad.service.style.ParagraphStyles;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
 import eu.amadeos.apps.writepad.service.layout.FloatingPicture;
 import eu.amadeos.apps.writepad.service.layout.TabStops;
@@ -45,8 +47,9 @@ import java.util.zip.ZipOutputStream;
 
 /**
  * Writes a styled document as a DOCX file that Word and LibreOffice open: {@code word/document.xml} with the
- * paragraphs, runs in direct formatting and the page in the last {@code w:sectPr}; {@code word/styles.xml}
- * with the default font; {@code word/numbering.xml} with one numbering per list (a list interrupted by other
+ * paragraphs in their styles ({@code w:pStyle}) with what is set by hand on them and their runs, and the page in
+ * the last {@code w:sectPr}; {@code word/styles.xml} with the default font and the paragraph styles the text
+ * uses, under Word's own names and ids ({@code heading 1}, {@code Heading1}); {@code word/numbering.xml} with one numbering per list (a list interrupted by other
  * paragraphs keeps its number, so it counts on); {@code word/settings.xml} with the default tab stops; the
  * content types and relationships. Lengths are in twips, font sizes in half points. Tab positions count from
  * the margin, as in our model. Pictures are DrawingML pictures in {@code w:drawing}, their images in
@@ -211,14 +214,57 @@ final class DocxWriter {
         xml.writeEndElement();
         xml.writeEndElement();
         xml.writeEndElement();
+        for (ParagraphStyle style : ParagraphStyles.used(document)) style(xml, style);
+        xml.writeEndElement();
+    }
+
+    // --8<-- [start:style]
+    /** A paragraph style with its whole look; headings with their outline level, kept with the next line. */
+    private void style(XMLStreamWriter xml, ParagraphStyle style) throws XMLStreamException {
+        AttributeSet a = ParagraphStyles.definition(document, style);
         xml.writeStartElement("w", "style", W);
         xml.writeAttribute("w", W, "type", "paragraph");
-        xml.writeAttribute("w", W, "default", "1");
-        xml.writeAttribute("w", W, "styleId", "Normal");
-        empty(xml, "name", "val", "Normal");
+        if (style == ParagraphStyle.NORMAL) xml.writeAttribute("w", W, "default", "1");
+        xml.writeAttribute("w", W, "styleId", style.docxId());
+        empty(xml, "name", "val", style.docxName());
+        if (style != ParagraphStyle.NORMAL) empty(xml, "basedOn", "val", ParagraphStyle.NORMAL.docxId());
+        if (style.next() != style) empty(xml, "next", "val", style.next().docxId());
         empty(xml, "qFormat");
+        start(xml, "pPr");
+        if (style.isHeading()) empty(xml, "keepNext");
+        spacing(xml, a);
+        indents(xml, a);
+        alignment(xml, a);
+        if (style.isHeading()) empty(xml, "outlineLvl", "val", String.valueOf(style.outlineLevel() - 1));
         xml.writeEndElement();
+        runProperties(xml, a);
         xml.writeEndElement();
+    }
+    // --8<-- [end:style]
+
+    private static void spacing(XMLStreamWriter xml, AttributeSet a) throws XMLStreamException {
+        float lineSpacing = StyleConstants.getLineSpacing(a);
+        empty(xml, "spacing", "before", String.valueOf(Ooxml.twips(StyleConstants.getSpaceAbove(a))),
+                "after", String.valueOf(Ooxml.twips(StyleConstants.getSpaceBelow(a))),
+                "line", String.valueOf(Math.round((1 + Math.max(0, lineSpacing)) * 240)), "lineRule", "auto");
+    }
+
+    private static void indents(XMLStreamWriter xml, AttributeSet a) throws XMLStreamException {
+        float first = StyleConstants.getFirstLineIndent(a);
+        xml.writeEmptyElement("w", "ind", W);
+        xml.writeAttribute("w", W, "left", String.valueOf(Ooxml.twips(StyleConstants.getLeftIndent(a))));
+        xml.writeAttribute("w", W, "right", String.valueOf(Ooxml.twips(StyleConstants.getRightIndent(a))));
+        if (first < 0) xml.writeAttribute("w", W, "hanging", String.valueOf(Ooxml.twips(-first)));
+        else xml.writeAttribute("w", W, "firstLine", String.valueOf(Ooxml.twips(first)));
+    }
+
+    private static void alignment(XMLStreamWriter xml, AttributeSet a) throws XMLStreamException {
+        empty(xml, "jc", "val", switch (StyleConstants.getAlignment(a)) {
+            case StyleConstants.ALIGN_CENTER -> "center";
+            case StyleConstants.ALIGN_RIGHT -> "right";
+            case StyleConstants.ALIGN_JUSTIFIED -> "both";
+            default -> "left";
+        });
     }
 
     // ---------------------------------------------------------------- document.xml
@@ -339,9 +385,12 @@ final class DocxWriter {
 
     private void paragraph(XMLStreamWriter xml, Element paragraph) throws XMLStreamException {
         AttributeSet a = paragraph.getAttributes();
+        ParagraphStyle style = ParagraphStyles.of(paragraph);
+        AttributeSet direct = ParagraphStyles.paragraphDirect(document, paragraph);
         start(xml, "p");
         start(xml, "pPr");
         // The order of these elements is fixed by the schema.
+        if (style != ParagraphStyle.NORMAL) empty(xml, "pStyle", "val", style.docxId());
         if (ListAttributes.isListItem(a)) {
             start(xml, "numPr");
             empty(xml, "ilvl", "val", String.valueOf(ListAttributes.level(a)));
@@ -354,25 +403,19 @@ final class DocxWriter {
             for (int i = 0; i < tabs.getTabCount(); i++) tab(xml, tabs.getTab(i));
             xml.writeEndElement();
         }
-        float lineSpacing = StyleConstants.getLineSpacing(a);
-        empty(xml, "spacing", "before", String.valueOf(Ooxml.twips(StyleConstants.getSpaceAbove(a))),
-                "after", String.valueOf(Ooxml.twips(StyleConstants.getSpaceBelow(a))),
-                "line", String.valueOf(Math.round((1 + Math.max(0, lineSpacing)) * 240)), "lineRule", "auto");
-        float first = StyleConstants.getFirstLineIndent(a);
-        xml.writeEmptyElement("w", "ind", W);
-        xml.writeAttribute("w", W, "left", String.valueOf(Ooxml.twips(StyleConstants.getLeftIndent(a))));
-        xml.writeAttribute("w", W, "right", String.valueOf(Ooxml.twips(StyleConstants.getRightIndent(a))));
-        if (first < 0) xml.writeAttribute("w", W, "hanging", String.valueOf(Ooxml.twips(-first)));
-        else xml.writeAttribute("w", W, "firstLine", String.valueOf(Ooxml.twips(first)));
-        empty(xml, "jc", "val", switch (StyleConstants.getAlignment(a)) {
-            case StyleConstants.ALIGN_CENTER -> "center";
-            case StyleConstants.ALIGN_RIGHT -> "right";
-            case StyleConstants.ALIGN_JUSTIFIED -> "both";
-            default -> "left";
-        });
+        // Only what differs from the style; a list item always has its indents, which its numbering would set.
+        if (direct.isDefined(StyleConstants.SpaceAbove) || direct.isDefined(StyleConstants.SpaceBelow)
+                || direct.isDefined(StyleConstants.LineSpacing)) {
+            spacing(xml, a);
+        }
+        if (ListAttributes.isListItem(a) || direct.isDefined(StyleConstants.LeftIndent)
+                || direct.isDefined(StyleConstants.RightIndent) || direct.isDefined(StyleConstants.FirstLineIndent)) {
+            indents(xml, a);
+        }
+        if (direct.isDefined(StyleConstants.Alignment)) alignment(xml, a);
         // The paragraph mark's format sets the height of an empty paragraph.
         int end = Math.max(paragraph.getStartOffset(), paragraph.getEndOffset() - 1);
-        runProperties(xml, document.getCharacterElement(end).getAttributes());
+        runProperties(xml, ParagraphStyles.characterDirect(document.getCharacterElement(end).getAttributes(), a));
         xml.writeEndElement();
         for (int r = 0; r < paragraph.getElementCount(); r++) {
             Element run = paragraph.getElement(r);
@@ -387,7 +430,7 @@ final class DocxWriter {
             if (text.endsWith("\n")) text = text.substring(0, text.length() - 1);
             if (text.isEmpty()) continue;
             start(xml, "r");
-            runProperties(xml, run.getAttributes());
+            runProperties(xml, ParagraphStyles.characterDirect(run.getAttributes(), a));
             Picture picture = PictureAttributes.picture(run.getAttributes());
             if (picture != null) drawing(xml, picture);
             else text(xml, text);
@@ -415,27 +458,38 @@ final class DocxWriter {
         xml.writeAttribute("w", W, "pos", String.valueOf(Math.max(0, Ooxml.twips(tab.getPosition()))));
     }
 
-    /** Direct formatting of a run, in the schema's order. */
+    /**
+     * The formatting the attributes set, in the schema's order, "not bold" and the like included so that it
+     * overrides a style; nothing if they set none.
+     */
     private static void runProperties(XMLStreamWriter xml, AttributeSet a) throws XMLStreamException {
+        if (a.getAttributeCount() == 0) return;
         start(xml, "rPr");
-        fonts(xml, StyleConstants.getFontFamily(a));
-        if (StyleConstants.isBold(a)) {
-            empty(xml, "b");
-            empty(xml, "bCs");
+        if (a.isDefined(StyleConstants.FontFamily)) fonts(xml, StyleConstants.getFontFamily(a));
+        if (a.isDefined(StyleConstants.Bold)) {
+            String on = StyleConstants.isBold(a) ? "1" : "0";
+            empty(xml, "b", "val", on);
+            empty(xml, "bCs", "val", on);
         }
-        if (StyleConstants.isItalic(a)) {
-            empty(xml, "i");
-            empty(xml, "iCs");
+        if (a.isDefined(StyleConstants.Italic)) {
+            String on = StyleConstants.isItalic(a) ? "1" : "0";
+            empty(xml, "i", "val", on);
+            empty(xml, "iCs", "val", on);
         }
-        if (StyleConstants.isStrikeThrough(a)) empty(xml, "strike");
+        if (a.isDefined(StyleConstants.StrikeThrough)) {
+            empty(xml, "strike", "val", StyleConstants.isStrikeThrough(a) ? "1" : "0");
+        }
         if (a.isDefined(StyleConstants.Foreground)) {
             Color c = StyleConstants.getForeground(a);
             empty(xml, "color", "val", String.format(Locale.ROOT, "%02X%02X%02X", c.getRed(), c.getGreen(), c.getBlue()));
         }
-        size(xml, StyleConstants.getFontSize(a));
-        if (StyleConstants.isUnderline(a)) empty(xml, "u", "val", "single");
+        if (a.isDefined(StyleConstants.FontSize)) size(xml, StyleConstants.getFontSize(a));
+        if (a.isDefined(StyleConstants.Underline)) empty(xml, "u", "val", StyleConstants.isUnderline(a) ? "single" : "none");
         if (StyleConstants.isSuperscript(a)) empty(xml, "vertAlign", "val", "superscript");
         else if (StyleConstants.isSubscript(a)) empty(xml, "vertAlign", "val", "subscript");
+        else if (a.isDefined(StyleConstants.Superscript) || a.isDefined(StyleConstants.Subscript)) {
+            empty(xml, "vertAlign", "val", "baseline");
+        }
         xml.writeEndElement();
     }
 

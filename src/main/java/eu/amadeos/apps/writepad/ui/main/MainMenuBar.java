@@ -1,5 +1,6 @@
 package eu.amadeos.apps.writepad.ui.main;
 
+import eu.amadeos.apps.writepad.service.style.ParagraphStyle;
 import eu.amadeos.apps.writepad.domain.DocumentSettings;
 import eu.amadeos.apps.writepad.domain.Orientation;
 import eu.amadeos.apps.writepad.repository.WritepadPreferences.Bar;
@@ -93,6 +94,21 @@ public final class MainMenuBar extends JMenuBar {
         item(insert, "menu.insert.sample-text", 0, 0, presenter::insertSampleText);
 
         JMenu format = menu("menu.format");
+        // --8<-- [start:style-menu]
+        JMenu paragraphStyle = new JMenu(msg.get("menu.format.paragraph-style"));
+        paragraphStyle.setName("menu.format.paragraph-style");
+        ButtonGroup styleGroup = new ButtonGroup();
+        for (ParagraphStyle style : ParagraphStyle.values()) {
+            JMenuItem item = radio(actions.paragraphStyles.get(style));
+            styleGroup.add(item);
+            paragraphStyle.add(item);
+            if (style == ParagraphStyle.SUBTITLE || style == ParagraphStyle.HEADING_6) paragraphStyle.addSeparator();
+        }
+        format.add(paragraphStyle);
+        format.add(item(actions.styles));
+        format.add(item(actions.clearFormatting));
+        format.addSeparator();
+        // --8<-- [end:style-menu]
         format.add(check(actions.bold));
         format.add(check(actions.italic));
         format.add(check(actions.underline));

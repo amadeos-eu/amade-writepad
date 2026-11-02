@@ -6,6 +6,8 @@ import eu.amadeos.apps.writepad.domain.Orientation;
 import eu.amadeos.apps.writepad.domain.Picture;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.Documents;
+import eu.amadeos.apps.writepad.service.style.ParagraphStyle;
+import eu.amadeos.apps.writepad.service.style.ParagraphStyles;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
 import eu.amadeos.apps.writepad.service.list.ListAttributes;
 import eu.amadeos.apps.writepad.domain.TableFormat;
@@ -33,6 +35,7 @@ import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -92,7 +95,7 @@ final class DocxReader {
         }
     }
 
-    private record Style(String id, String basedOn, Props paragraph, Props run) {
+    private record Style(String id, String name, String basedOn, Props paragraph, Props run) {
     }
 
     /** A list level: its format (null for none), its indents in twips (null if not set). */
@@ -104,6 +107,9 @@ final class DocxReader {
 
     private final Map<String, byte[]> files;
     private final StyledDocument document = Documents.newDocument();
+    private final ParagraphStyles.Collector collector = new ParagraphStyles.Collector(document);
+    /** The file's style id each built-in style was found under, for its definition. */
+    private final Map<ParagraphStyle, String> styleIds = new EnumMap<>(ParagraphStyle.class);
     private final Props defaultParagraph = new Props();
     private final Props defaultRun = new Props();
     /** How many tables the reader is in; tables in tables come in as paragraphs. */
@@ -175,6 +181,7 @@ final class DocxReader {
         imageRelationships(folder, rels);
         document(body);
         removeTrailingParagraphEnd();
+        adoptStyles();
     }
 
     /** The part a relationship of the given type points to, as a path in the ZIP; null if there is none. */
@@ -303,6 +310,7 @@ final class DocxReader {
         String id = val(r, "styleId");
         boolean isDefault = "1".equals(val(r, "default")) || "true".equals(val(r, "default"));
         String[] basedOn = {null};
+        String[] name = {null};
         Props paragraph = new Props();
         Props run = new Props();
         children(r, child -> {
@@ -311,13 +319,17 @@ final class DocxReader {
                     basedOn[0] = val(r, "val");
                     skip(r);
                 }
+                case "name" -> {
+                    name[0] = val(r, "val");
+                    skip(r);
+                }
                 case "pPr" -> paragraph.merge(paragraphProperties(r, null));
                 case "rPr" -> run.merge(runProperties(r));
                 default -> skip(r);
             }
         });
         if (id == null) return;
-        Style style = new Style(id, basedOn[0], paragraph, run);
+        Style style = new Style(id, name[0], basedOn[0], paragraph, run);
         if ("paragraph".equals(type)) {
             paragraphStyles.put(id, style);
             if (isDefault) defaultParagraphStyle = id;
@@ -796,10 +808,45 @@ final class DocxReader {
         markFormat.merge(runBase[0]);
         markFormat.merge(mark);
         insert("\n", characterAttributes(markFormat));
+        collector.paragraph(start, builtInStyle(direct.get("pStyle") != null ? direct.get("pStyle") : defaultParagraphStyle));
         document.setParagraphAttributes(start, Math.max(1, document.getLength() - start),
                 paragraphAttributes(style[0], direct), false);
         fields.clear();
     }
+
+    // --8<-- [start:styles]
+    /**
+     * The built-in style a paragraph style stands for: the first style in its chain whose name (Word's
+     * {@code heading 1}, which stays English in every language) or id is known; Normal if none is.
+     */
+    private ParagraphStyle builtInStyle(String id) {
+        Style style = id != null ? paragraphStyles.get(id) : null;
+        for (int guard = 0; style != null && guard < 32; guard++) {
+            var known = ParagraphStyle.forName(style.name());
+            if (known.isEmpty()) known = ParagraphStyle.forName(style.id());
+            if (known.isPresent()) {
+                styleIds.putIfAbsent(known.get(), style.id());
+                return known.get();
+            }
+            style = style.basedOn() != null ? paragraphStyles.get(style.basedOn()) : null;
+        }
+        return ParagraphStyle.NORMAL;
+    }
+
+    /** The styles get the file's definitions, the paragraphs their styles. */
+    private void adoptStyles() {
+        if (defaultParagraphStyle != null) styleIds.putIfAbsent(ParagraphStyle.NORMAL, defaultParagraphStyle);
+        Map<ParagraphStyle, AttributeSet> definitions = new EnumMap<>(ParagraphStyle.class);
+        styleIds.forEach((style, id) -> {
+            Props pStyle = new Props();
+            put(pStyle, "pStyle", id);
+            SimpleAttributeSet a = characterAttributes(runBase(pStyle));
+            a.addAttributes(paragraphAttributes(paragraphStyle(pStyle), new Props()));
+            definitions.put(style, a);
+        });
+        collector.adopt(definitions);
+    }
+    // --8<-- [end:styles]
 
     /** The paragraph's style properties: defaults, then its style chain (or the default paragraph style). */
     private Props paragraphStyle(Props direct) {

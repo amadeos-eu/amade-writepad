@@ -1,5 +1,7 @@
 package eu.amadeos.apps.writepad.ui.main;
 
+import eu.amadeos.apps.writepad.service.style.ParagraphStyles;
+import eu.amadeos.apps.writepad.service.style.ParagraphStyle;
 import eu.amadeos.apps.writepad.OnEdt;
 import eu.amadeos.apps.writepad.QueueExecutor;
 import eu.amadeos.commons.i18n.Messages;
@@ -73,5 +75,34 @@ class FormatBarTest {
         assertNull(FormatBar.parseSize("2000"));
         assertNull(FormatBar.parseSize("x"));
         assertNull(FormatBar.parseSize(null));
+    }
+
+    @Test
+    void showsAndSetsTheParagraphStyle() throws Exception {
+        OnEdt.run(() -> {
+            Messages msg = Messages.load(WritepadModule.class, WritepadModule.MESSAGES, Locale.ENGLISH);
+            PageEditor editor = new PageEditor(new PageLayout(DocumentSettings.DEFAULT, 1));
+            MainPresenter presenter = TestPresenters.create(null, new PageLayout(DocumentSettings.DEFAULT, 1), config,
+                    new QueueExecutor());
+            EditorActions actions = new EditorActions(editor, presenter, msg);
+            FormatBar bar = new FormatBar(actions, editor, msg);
+            javax.swing.text.StyledDocument doc = eu.amadeos.apps.writepad.service.format.Documents.newDocument();
+            editor.setStyledDocument(doc);
+            actions.attach(doc);
+            try {
+                doc.insertString(0, "Chapter\nText", null);
+            } catch (BadLocationException e) {
+                throw new AssertionError(e);
+            }
+            editor.setCaretPosition(2);
+            actions.update();
+            assertEquals(ParagraphStyle.NORMAL, bar.styleBox().getSelectedItem());
+            bar.styleBox().setSelectedItem(ParagraphStyle.HEADING_2);
+            assertEquals(ParagraphStyle.HEADING_2, ParagraphStyles.of(doc.getParagraphElement(2)));
+            assertEquals("15", bar.sizeBox().getSelectedItem(), "the size box shows the style's size");
+            editor.setCaretPosition(10);
+            actions.update();
+            assertEquals(ParagraphStyle.NORMAL, bar.styleBox().getSelectedItem());
+        });
     }
 }

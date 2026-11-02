@@ -83,6 +83,11 @@ public final class WritepadDocument extends DefaultStyledDocument {
         }
     }
 
+    /** Hands an edit made outside the document's own methods (a style change) to Undo. */
+    public void postEdit(javax.swing.undo.UndoableEdit edit) {
+        fireUndoableEditUpdate(new UndoableEditEvent(this, edit));
+    }
+
     @Override
     protected void fireUndoableEditUpdate(UndoableEditEvent e) {
         if (group != null) {

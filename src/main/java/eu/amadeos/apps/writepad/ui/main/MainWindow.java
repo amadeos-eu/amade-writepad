@@ -17,6 +17,8 @@ import eu.amadeos.apps.writepad.service.print.PrintService;
 import eu.amadeos.apps.writepad.ui.dialog.PageSetupDialog;
 import eu.amadeos.apps.writepad.domain.Picture;
 import eu.amadeos.apps.writepad.ui.dialog.ParagraphDialog;
+import eu.amadeos.apps.writepad.ui.dialog.StylesDialog;
+import eu.amadeos.apps.writepad.service.style.ParagraphStyle;
 import eu.amadeos.apps.writepad.ui.dialog.PictureChooser;
 import eu.amadeos.apps.writepad.ui.dialog.PictureDialog;
 import eu.amadeos.apps.writepad.ui.dialog.CellBackgroundDialog;
@@ -48,6 +50,7 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.filechooser.FileFilter;
 import javax.swing.filechooser.FileNameExtensionFilter;
+import javax.swing.text.AttributeSet;
 import javax.swing.text.StyledDocument;
 import javax.swing.text.TabStop;
 import java.awt.BorderLayout;
@@ -139,6 +142,13 @@ public final class MainWindow extends JFrame implements MainView {
             @Override
             public Optional<List<TabStop>> tabs(List<TabStop> current) {
                 return new TabsDialog(msg, unit, current, layout.contentWidth()).showDialog(MainWindow.this);
+            }
+
+            @Override
+            public Optional<Map<ParagraphStyle, AttributeSet>> styles(Map<ParagraphStyle, AttributeSet> current,
+                                                                     ParagraphStyle atCaret, AttributeSet caretLook) {
+                return new StylesDialog(msg, unit, current, atCaret, caretLook, FormatBar.fontFamilies(),
+                        FormatBar.SIZES).showDialog(MainWindow.this);
             }
 
             @Override

@@ -1,5 +1,6 @@
 package eu.amadeos.apps.writepad.service.format.docx;
 
+import eu.amadeos.apps.writepad.service.format.StyleSamples;
 import eu.amadeos.apps.writepad.domain.DocumentSettings;
 import eu.amadeos.apps.writepad.domain.Margins;
 import eu.amadeos.apps.writepad.domain.Orientation;
@@ -471,5 +472,26 @@ class DocxFormatTest {
         assertEquals("wide||c/a|in1~in2~|", TableSamples.grid(c.document(), t));
         assertEquals(3, t.format().columns());
         assertEquals(100, t.format().width(0), 0.5);
+    }
+
+    @Test
+    void keepsParagraphStyles() throws IOException {
+        StyleSamples.check(format.read(format.write(StyleSamples.document())));
+    }
+
+    @Test
+    void writesWordsOwnStyles() throws IOException {
+        byte[] docx = format.write(StyleSamples.document());
+        String document = part(docx, "word/document.xml");
+        assertTrue(document.contains("<w:pStyle w:val=\"Heading1\"/>"), document);
+        String styles = part(docx, "word/styles.xml");
+        assertTrue(styles.contains("<w:name w:val=\"heading 1\"/>"), styles);
+        assertTrue(styles.contains("<w:outlineLvl w:val=\"0\"/>"), styles);
+        assertTrue(styles.contains("w:styleId=\"Quote\""), styles);
+    }
+
+    @Test
+    void readsLibreOfficeStyles() throws IOException {
+        StyleSamples.checkLibreOffice(fixture("styles.docx"));
     }
 }

@@ -1,5 +1,6 @@
 package eu.amadeos.apps.writepad.service.format.rtf;
 
+import eu.amadeos.apps.writepad.service.format.StyleSamples;
 import eu.amadeos.apps.writepad.domain.DocumentSettings;
 import eu.amadeos.apps.writepad.domain.Margins;
 import eu.amadeos.apps.writepad.domain.Orientation;
@@ -463,5 +464,23 @@ class RtfFormatTest {
         DocumentContent c = read("{\\rtf1 \\trowd\\cellx2000\\pard\\intbl x\\cell\\row}");
         assertEquals("x", TableSamples.grid(c.document(), TableSamples.table(c)));
         assertEquals("x\n", text(c));
+    }
+
+    @Test
+    void keepsParagraphStyles() throws IOException {
+        StyleSamples.check(format.read(format.write(StyleSamples.document())));
+    }
+
+    @Test
+    void writesAStyleSheet() throws IOException {
+        String rtf = new String(format.write(StyleSamples.document()), StandardCharsets.US_ASCII);
+        assertTrue(rtf.contains("{\\stylesheet{\\s0"), rtf);
+        assertTrue(rtf.contains("heading 1;}"), rtf);
+        assertTrue(rtf.contains("\\pard\\s3\\outlinelevel0"), rtf);
+    }
+
+    @Test
+    void readsLibreOfficeStyles() throws IOException {
+        StyleSamples.checkLibreOffice(fixture("styles.rtf"));
     }
 }

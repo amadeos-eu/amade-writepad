@@ -5,6 +5,8 @@ import eu.amadeos.apps.writepad.domain.Margins;
 import eu.amadeos.apps.writepad.domain.Orientation;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.Documents;
+import eu.amadeos.apps.writepad.service.style.ParagraphStyle;
+import eu.amadeos.apps.writepad.service.style.ParagraphStyles;
 import eu.amadeos.apps.writepad.domain.Picture;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
 import eu.amadeos.apps.writepad.service.picture.PictureAttributes;
@@ -31,6 +33,7 @@ import java.awt.Color;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -65,6 +68,9 @@ final class OdtReader {
 
     private final OdtStyles styles = new OdtStyles();
     private final StyledDocument document = Documents.newDocument();
+    private final ParagraphStyles.Collector paragraphStyles = new ParagraphStyles.Collector(document);
+    /** The file's style each built-in style was found under, for its definition. */
+    private final Map<ParagraphStyle, String> styleNames = new EnumMap<>(ParagraphStyle.class);
     /** Our list ids for the lists' xml:id, and the last list of each list style. */
     private final Map<String, Integer> listsByXmlId = new HashMap<>();
     private final Map<String, Integer> lastListByStyle = new HashMap<>();
@@ -103,6 +109,7 @@ final class OdtReader {
             throw new IOException("Broken OpenDocument file: " + e.getMessage(), e);
         }
         reader.removeTrailingParagraphEnd();
+        reader.adoptStyles();
         return new DocumentContent(reader.document, reader.settings());
     }
 
@@ -245,6 +252,7 @@ final class OdtReader {
     private OdtStyles.Style style(XMLStreamReader r, String name) throws XMLStreamException {
         OdtStyles.Style style = new OdtStyles.Style(name, attribute(r, Odf.STYLE, "parent-style-name"));
         style.listStyle = attribute(r, Odf.STYLE, "list-style-name");
+        style.displayName = attribute(r, Odf.STYLE, "display-name");
         children(r, child -> {
             switch (child) {
                 case "style:paragraph-properties" -> {
@@ -587,14 +595,54 @@ final class OdtReader {
     private void paragraph(XMLStreamReader r, ListPlace place) throws XMLStreamException {
         flushText();
         int start = document.getLength();
-        OdtStyles.Resolved style = styles.paragraph(attribute(r, Odf.TEXT, "style-name"));
+        String styleName = attribute(r, Odf.TEXT, "style-name");
+        OdtStyles.Resolved style = styles.paragraph(styleName);
+        ParagraphStyle named = paragraphStyle(styleName, name(r).equals("text:h")
+                ? attribute(r, Odf.TEXT, "outline-level") : null);
         afterSpace = true;
         inline(r, style);
         flushText();
         insert("\n", characterAttributes(style));
+        // Noted once the paragraph has its text: a position at the end would move with the text added there.
+        paragraphStyles.paragraph(start, named);
         document.setParagraphAttributes(start, Math.max(1, document.getLength() - start),
                 paragraphAttributes(style, place), false);
     }
+
+    // --8<-- [start:styles]
+    /**
+     * The built-in style of a paragraph: the one its style (or a parent of it) is named after, else for a
+     * heading ({@code text:h}) the heading of its outline level; Normal for everything else.
+     */
+    private ParagraphStyle paragraphStyle(String styleName, String outlineLevel) {
+        Map.Entry<ParagraphStyle, String> named = styles.named(styleName);
+        if (named != null) {
+            styleNames.putIfAbsent(named.getKey(), named.getValue());
+            if (named.getKey() != ParagraphStyle.NORMAL || outlineLevel == null) return named.getKey();
+        }
+        if (outlineLevel != null) {
+            try {
+                return ParagraphStyle.heading(Integer.parseInt(outlineLevel.strip())).orElse(ParagraphStyle.NORMAL);
+            } catch (NumberFormatException e) {
+                return ParagraphStyle.NORMAL;
+            }
+        }
+        return ParagraphStyle.NORMAL;
+    }
+
+    /** The styles get the file's definitions, the paragraphs their styles. */
+    private void adoptStyles() {
+        Map<ParagraphStyle, AttributeSet> definitions = new EnumMap<>(ParagraphStyle.class);
+        styleNames.putIfAbsent(ParagraphStyle.NORMAL, "Standard");
+        styleNames.forEach((style, name) -> {
+            OdtStyles.Resolved resolved = styles.paragraph(name);
+            SimpleAttributeSet a = characterAttributes(resolved);
+            a.addAttributes(paragraphAttributes(resolved, null));
+            definitions.put(style, a);
+        });
+        paragraphStyles.adopt(definitions);
+    }
+    // --8<-- [end:styles]
 
     /** The text of a paragraph or span, with the formatting in effect. */
     private void inline(XMLStreamReader r, OdtStyles.Resolved format) throws XMLStreamException {

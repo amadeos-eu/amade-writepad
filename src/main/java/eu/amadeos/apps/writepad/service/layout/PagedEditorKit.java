@@ -41,7 +41,7 @@ public final class PagedEditorKit extends StyledEditorKit {
     /** An editor without a loaded file gets the same kind of document as a new one. */
     @Override
     public Document createDefaultDocument() {
-        return new WritepadDocument();
+        return eu.amadeos.apps.writepad.service.format.Documents.newDocument();
     }
 
     @Override
