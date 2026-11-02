@@ -13,7 +13,7 @@ import java.awt.geom.Rectangle2D;
  */
 public enum WritepadGlyph implements ToolIcon.Glyph {
     PREVIEW, BOLD, ITALIC, UNDERLINE, STRIKE_THROUGH,
-    ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT, ALIGN_JUSTIFY, BULLETS, NUMBERING, PICTURE;
+    ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT, ALIGN_JUSTIFY, BULLETS, NUMBERING, PICTURE, TABLE;
 
     @Override
     public void paint(ToolIcon.Pen pen) {
@@ -41,7 +41,19 @@ public enum WritepadGlyph implements ToolIcon.Glyph {
             case BULLETS -> list(pen, false);
             case NUMBERING -> list(pen, true);
             case PICTURE -> picture(pen);
+            case TABLE -> table(pen);
         }
+    }
+
+    /** A table of three by three cells with a shaded heading row. */
+    private static void table(ToolIcon.Pen pen) {
+        pen.fillAndDraw(new Rectangle2D.Double(1.5, 2.5, 13, 11), pen.paper());
+        pen.fill(new Rectangle2D.Double(2, 3, 12, 3), pen.light());
+        pen.draw(new Rectangle2D.Double(1.5, 2.5, 13, 11));
+        pen.line(1.5, 6.5, 14.5, 6.5);
+        pen.line(1.5, 10, 14.5, 10);
+        pen.line(5.8, 2.5, 5.8, 13.5);
+        pen.line(10.2, 2.5, 10.2, 13.5);
     }
 
     /** A framed landscape: a hill and the sun. */

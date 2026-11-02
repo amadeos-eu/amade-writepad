@@ -19,6 +19,9 @@ import eu.amadeos.apps.writepad.domain.Picture;
 import eu.amadeos.apps.writepad.ui.dialog.ParagraphDialog;
 import eu.amadeos.apps.writepad.ui.dialog.PictureChooser;
 import eu.amadeos.apps.writepad.ui.dialog.PictureDialog;
+import eu.amadeos.apps.writepad.ui.dialog.CellBackgroundDialog;
+import eu.amadeos.apps.writepad.ui.dialog.InsertTableDialog;
+import eu.amadeos.apps.writepad.ui.dialog.TablePropertiesDialog;
 import eu.amadeos.apps.writepad.ui.editor.PictureEditing;
 import eu.amadeos.apps.writepad.ui.dialog.TabsDialog;
 import eu.amadeos.apps.writepad.ui.editor.PageEditor;
@@ -159,6 +162,22 @@ public final class MainWindow extends JFrame implements MainView {
             public void showError(String message) {
                 MainWindow.this.showError(message);
             }
+
+            @Override
+            public Optional<InsertTableDialog.Values> insertTable(double contentWidth) {
+                return new InsertTableDialog(msg, unit, contentWidth).showDialog(MainWindow.this);
+            }
+
+            @Override
+            public Optional<TablePropertiesDialog.Values> tableProperties(TablePropertiesDialog.Current current,
+                                                                          double contentWidth) {
+                return new TablePropertiesDialog(msg, unit, current, contentWidth).showDialog(MainWindow.this);
+            }
+
+            @Override
+            public Optional<CellBackgroundDialog.Choice> cellBackground(java.awt.Color current) {
+                return new CellBackgroundDialog(msg, current).showDialog(MainWindow.this);
+            }
         });
         editor.setPictureListener(new PageEditor.PictureListener() {
             @Override
@@ -175,6 +194,12 @@ public final class MainWindow extends JFrame implements MainView {
             @Override
             public void group(Runnable change) {
                 actions.apply(change);
+            }
+
+            @Override
+            public void tableMenu(MouseEvent e) {
+                actions.update();
+                MainWindow.this.tableMenu().show(editor, e.getX(), e.getY());
             }
         });
         ruler = new Ruler(editor, unit, msg);
@@ -225,6 +250,21 @@ public final class MainWindow extends JFrame implements MainView {
         JPopupMenu menu = new JPopupMenu();
         for (javax.swing.Action a : new javax.swing.Action[]{actions.cut, actions.copy, actions.paste, null,
                 actions.pictureProperties, actions.replacePicture, actions.originalSize, null, actions.savePictureAs}) {
+            if (a == null) menu.addSeparator();
+            else menu.add(new JMenuItem(a));
+        }
+        return menu;
+    }
+
+    /** Right click in a table: the clipboard and the Table menu's commands. */
+    private JPopupMenu tableMenu() {
+        JPopupMenu menu = new JPopupMenu();
+        menu.setName("table-menu");
+        for (javax.swing.Action a : new javax.swing.Action[]{actions.cut, actions.copy, actions.paste}) {
+            menu.add(new JMenuItem(a));
+        }
+        menu.addSeparator();
+        for (javax.swing.Action a : MainMenuBar.tableItems(actions)) {
             if (a == null) menu.addSeparator();
             else menu.add(new JMenuItem(a));
         }

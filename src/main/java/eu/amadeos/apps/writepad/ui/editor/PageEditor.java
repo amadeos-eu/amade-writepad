@@ -2,6 +2,7 @@ package eu.amadeos.apps.writepad.ui.editor;
 
 import eu.amadeos.apps.writepad.domain.Picture;
 import eu.amadeos.apps.writepad.service.picture.PictureAttributes;
+import eu.amadeos.apps.writepad.service.table.Tables;
 import eu.amadeos.commons.swing.AmadeUI;
 import eu.amadeos.apps.writepad.service.layout.PageLayout;
 import eu.amadeos.apps.writepad.service.layout.PagedEditorKit;
@@ -43,6 +44,7 @@ public final class PageEditor extends JTextPane {
     private IntFunction<String> footer = page -> null;
     private double guide = Double.NaN;
     private final PictureHandles handles = new PictureHandles(this);
+    private final ColumnHandles columns = new ColumnHandles(this);
     private PictureListener pictureListener = new PictureListener() {
     };
     /** Whether a picture was selected at the last caret update, to repaint its handles away. */
@@ -61,6 +63,10 @@ public final class PageEditor extends JTextPane {
         /** Runs a change of pictures (a resize, a paste) as one undo step. */
         default void group(Runnable change) {
             change.run();
+        }
+
+        /** A right click in a table cell, after the caret moved there; at the mouse event's point. */
+        default void tableMenu(MouseEvent e) {
         }
     }
 
@@ -106,13 +112,14 @@ public final class PageEditor extends JTextPane {
     /**
      * Pictures first, then the caret: a press on a handle starts a resize that the caret never sees (it would
      * select text); a click on a picture selects it after the caret has placed itself; a double click opens
-     * the Picture dialog, a right click its menu.
+     * the Picture dialog, a right click its menu. A press on a table's column line starts moving it; a right
+     * click in a table opens the table menu.
      */
     @Override
     protected void processMouseEvent(MouseEvent e) {
         switch (e.getID()) {
             case MouseEvent.MOUSE_PRESSED -> {
-                if (e.getButton() == MouseEvent.BUTTON1 && handles.pressed(e)) {
+                if (e.getButton() == MouseEvent.BUTTON1 && (handles.pressed(e) || columns.pressed(e))) {
                     requestFocusInWindow();
                     return;
                 }
@@ -122,6 +129,13 @@ public final class PageEditor extends JTextPane {
                         requestFocusInWindow();
                         PictureEditing.select(this, offset);
                         pictureListener.menu(offset, e);
+                        return;
+                    }
+                    int at = viewToModel2D(e.getPoint());
+                    if (at >= 0 && Tables.inTable(getStyledDocument(), at)) {
+                        requestFocusInWindow();
+                        if (at < getSelectionStart() || at > getSelectionEnd()) setCaretPosition(at);
+                        pictureListener.tableMenu(e);
                         return;
                     }
                 }
@@ -141,6 +155,10 @@ public final class PageEditor extends JTextPane {
                     handles.released();
                     return;
                 }
+                if (columns.dragging()) {
+                    columns.released();
+                    return;
+                }
                 super.processMouseEvent(e);
             }
             default -> super.processMouseEvent(e);
@@ -153,8 +171,13 @@ public final class PageEditor extends JTextPane {
             handles.dragged(e);
             return;
         }
+        if (e.getID() == MouseEvent.MOUSE_DRAGGED && columns.dragging()) {
+            columns.dragged(e);
+            return;
+        }
         if (e.getID() == MouseEvent.MOUSE_MOVED) {
             Cursor cursor = handles.cursorAt(e.getPoint());
+            if (cursor == null) cursor = columns.cursorAt(e.getPoint());
             setCursor(cursor != null ? cursor : Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR));
         }
         super.processMouseMotionEvent(e);

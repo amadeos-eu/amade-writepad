@@ -7,6 +7,8 @@ import eu.amadeos.apps.writepad.domain.Units;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.Documents;
 import eu.amadeos.apps.writepad.service.format.PictureSamples;
+import eu.amadeos.apps.writepad.service.format.TableSamples;
+import eu.amadeos.apps.writepad.service.table.Tables;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
 import eu.amadeos.apps.writepad.service.list.ListAttributes;
 import eu.amadeos.apps.writepad.service.list.ListFormat;
@@ -386,5 +388,34 @@ class OdtFormatTest {
         assertEquals("1. 2. - 3. 1. 1. - -", labels(c));
         assertEquals(ListAttributes.leftIndent(0), StyleConstants.getLeftIndent(paragraphAt(c, "more")), 0.01);
         assertEquals(0f, StyleConstants.getFirstLineIndent(paragraphAt(c, "more")));
+    }
+
+    // ---------------------------------------------------------------- tables
+
+    @Test
+    void keepsTables() throws IOException {
+        TableSamples.check(format.read(format.write(TableSamples.document())), true);
+    }
+
+    /** LibreOffice 24.2 opened what amade-writepad wrote and saved it again. */
+    @Test
+    void readsTablesLibreOfficeWrote() throws IOException {
+        TableSamples.check(fixture("libreoffice-tables.odt"), true);
+    }
+
+    @Test
+    void splitsMergedCellsAndFlattensTablesInTables() throws IOException {
+        String cell = "<table:table-cell><text:p>%s</text:p></table:table-cell>";
+        DocumentContent c = format.read(odt("<office:body><office:text><table:table>"
+                + "<table:table-column table:number-columns-repeated=\"3\"/>"
+                + "<table:table-row><table:table-cell table:number-columns-spanned=\"2\"><text:p>wide</text:p>"
+                + "</table:table-cell><table:covered-table-cell/>" + cell.formatted("c") + "</table:table-row>"
+                + "<table:table-row>" + cell.formatted("a") + "<table:table-cell><table:table><table:table-row>"
+                + cell.formatted("in1") + cell.formatted("in2") + "</table:table-row></table:table></table:table-cell>"
+                + "<table:table-cell table:number-columns-repeated=\"1\"/></table:table-row>"
+                + "</table:table><text:p>after</text:p></office:text></office:body>"));
+        Tables.Table t = TableSamples.table(c);
+        assertEquals("wide||c/a|in1~in2|", TableSamples.grid(c.document(), t));
+        assertEquals(3, t.format().columns());
     }
 }

@@ -13,6 +13,8 @@ import eu.amadeos.apps.writepad.service.list.ListAttributes;
 import eu.amadeos.apps.writepad.service.list.ListFormat;
 import eu.amadeos.apps.writepad.service.list.ListNumbering;
 import eu.amadeos.commons.print.PaperSize;
+import eu.amadeos.apps.writepad.service.format.TableSamples;
+import eu.amadeos.apps.writepad.service.table.Tables;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.text.AttributeSet;
@@ -442,5 +444,32 @@ class DocxFormatTest {
     private static String item(int numId, int level) {
         return "<w:p><w:pPr><w:numPr><w:ilvl w:val=\"" + level + "\"/><w:numId w:val=\"" + numId + "\"/></w:numPr>"
                 + "</w:pPr><w:r><w:t>x</w:t></w:r></w:p>";
+    }
+
+    @Test
+    void keepsTables() throws IOException {
+        TableSamples.check(format.read(format.write(TableSamples.document())), true);
+    }
+
+    /** LibreOffice 24.2 opened what amade-writepad wrote and saved it again. */
+    @Test
+    void readsTablesLibreOfficeWrote() throws IOException {
+        TableSamples.check(fixture("libreoffice-tables.docx"), true);
+    }
+
+    @Test
+    void splitsMergedCellsAndFlattensTablesInTables() throws IOException {
+        String cell = "<w:tc><w:p><w:r><w:t>%s</w:t></w:r></w:p></w:tc>";
+        DocumentContent c = format.read(docx("<w:tbl><w:tblGrid><w:gridCol w:w=\"2000\"/><w:gridCol w:w=\"2000\"/>"
+                + "<w:gridCol w:w=\"2000\"/></w:tblGrid>"
+                + "<w:tr><w:tc><w:tcPr><w:gridSpan w:val=\"2\"/></w:tcPr><w:p><w:r><w:t>wide</w:t></w:r></w:p></w:tc>"
+                + cell.formatted("c") + "</w:tr>"
+                + "<w:tr>" + cell.formatted("a") + "<w:tc><w:tbl><w:tr>" + cell.formatted("in1") + cell.formatted("in2")
+                + "</w:tr></w:tbl><w:p/></w:tc><w:tc><w:tcPr><w:vMerge/></w:tcPr><w:p/></w:tc></w:tr></w:tbl>"
+                + "<w:p><w:r><w:t>after</w:t></w:r></w:p>", null, null, null));
+        Tables.Table t = TableSamples.table(c);
+        assertEquals("wide||c/a|in1~in2~|", TableSamples.grid(c.document(), t));
+        assertEquals(3, t.format().columns());
+        assertEquals(100, t.format().width(0), 0.5);
     }
 }

@@ -5,7 +5,7 @@ import eu.amadeos.commons.swing.ToolButtons;
 
 import javax.swing.JToolBar;
 
-/** New, Open, Save | Print, Preview | Cut, Copy, Paste | Undo, Redo | Find, as in WordPad | Picture. */
+/** New, Open, Save | Print, Preview | Cut, Copy, Paste | Undo, Redo | Find, as in WordPad | Table, Picture. */
 public final class MainToolBar extends JToolBar {
     public MainToolBar(EditorActions actions) {
         EdtExecutor.requireEdt();
@@ -28,6 +28,7 @@ public final class MainToolBar extends JToolBar {
         addSeparator();
         add(ToolButtons.button(actions.find));
         addSeparator();
+        add(ToolButtons.button(actions.insertTableGrid));
         add(ToolButtons.button(actions.insertPicture));
     }
 }

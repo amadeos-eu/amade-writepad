@@ -9,6 +9,10 @@ import eu.amadeos.apps.writepad.domain.Picture;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
 import eu.amadeos.apps.writepad.service.picture.PictureAttributes;
 import eu.amadeos.apps.writepad.service.list.ListAttributes;
+import eu.amadeos.apps.writepad.domain.TableFormat;
+import eu.amadeos.apps.writepad.service.table.TableAttributes;
+import eu.amadeos.apps.writepad.service.table.TableBuilder;
+import eu.amadeos.apps.writepad.service.table.TableLines;
 import eu.amadeos.apps.writepad.service.list.ListFormat;
 import eu.amadeos.commons.print.PaperSize;
 
@@ -57,7 +61,7 @@ final class OdtReader {
             "text:dde-connection-decls", "office:forms", "text:note", "office:annotation", "text:ruby-text",
             "text:table-of-content-source", "text:alphabetical-index-source", "text:illustration-index-source",
             "text:object-index-source", "text:user-index-source", "text:table-index-source",
-            "text:bibliography-source", "table:table-columns", "table:table-column", "office:event-listeners");
+            "text:bibliography-source", "office:event-listeners");
 
     private final OdtStyles styles = new OdtStyles();
     private final StyledDocument document = Documents.newDocument();
@@ -66,6 +70,8 @@ final class OdtReader {
     private final Map<String, Integer> lastListByStyle = new HashMap<>();
     private int lastList;
     private int nextListId = 1;
+    /** How many tables the reader is in; tables in tables come in as paragraphs. */
+    private int tableDepth;
 
     /** Text waiting to be inserted, all in the same format. */
     private final StringBuilder text = new StringBuilder();
@@ -264,6 +270,11 @@ final class OdtReader {
                     style.graphic.putAll(attributes(r));
                     skip(r);
                 }
+                case "style:table-properties", "style:table-column-properties", "style:table-row-properties",
+                     "style:table-cell-properties" -> {
+                    style.table.putAll(attributes(r));
+                    skip(r);
+                }
                 default -> skip(r);
             }
         });
@@ -366,13 +377,169 @@ final class OdtReader {
             paragraph(r, place);
         } else if (child.equals("text:list")) {
             list(r, place);
-        } else if (SKIPPED.contains(child) || child.startsWith("draw:") || child.startsWith("?:")) {
+        } else if (child.equals("table:table") && tableDepth == 0) {
+            table(r);
+        } else if (SKIPPED.contains(child) || child.startsWith("draw:") || child.startsWith("?:")
+                || child.equals("table:table-column") || child.equals("table:table-columns")) {
             skip(r);
         } else {
-            // Tables, sections, indexes: their paragraphs are kept, as the model has no tables yet.
+            // Sections, indexes, tables in tables: their paragraphs are kept.
             block(r, null);
         }
     }
+
+    // --8<-- [start:table]
+    /**
+     * A table: its paragraphs go into the document cell by cell, and at its end they become a table. Merged
+     * cells are split again (the text stays in the first one), a table inside a cell comes in as its
+     * paragraphs, and the heading rows repeat if the file puts them into {@code table:table-header-rows}.
+     */
+    private void table(XMLStreamReader r) throws XMLStreamException {
+        flushText();
+        tableDepth++;
+        TableBuilder builder = new TableBuilder(document);
+        List<Double> widths = new ArrayList<>();
+        Map<String, String> tableProps = styles.table("table", attribute(r, Odf.TABLE, "style-name"));
+        boolean[] header = {false};
+        List<Map<String, String>> firstCells = new ArrayList<>();
+        children(r, child -> tablePart(r, child, builder, widths, header, firstCells, false));
+        tableDepth--;
+        TableFormat format = tableFormat(widths, builder.columns(), tableProps, firstCells, builder.rows())
+                .withRepeatHeader(header[0]);
+        builder.finish(format);
+    }
+
+    private void tablePart(XMLStreamReader r, String child, TableBuilder builder, List<Double> widths,
+                           boolean[] header, List<Map<String, String>> cells, boolean inHeader)
+            throws XMLStreamException {
+        switch (child) {
+            case "table:table-column" -> {
+                Map<String, String> column = styles.table("table-column", attribute(r, Odf.TABLE, "style-name"));
+                int repeated = repeat(attribute(r, Odf.TABLE, "number-columns-repeated"));
+                double w = Odf.points(column.get("style:column-width"));
+                for (int i = 0; i < repeated; i++) widths.add(w);
+                skip(r);
+            }
+            case "table:table-columns", "table:table-column-group", "table:table-rows", "table:table-row-group" ->
+                    children(r, c -> tablePart(r, c, builder, widths, header, cells, inHeader));
+            case "table:table-header-rows" -> {
+                if (builder.rows() == 0) header[0] = true;
+                children(r, c -> tablePart(r, c, builder, widths, header, cells, true));
+            }
+            case "table:table-row" -> {
+                int repeated = Math.min(repeat(attribute(r, Odf.TABLE, "number-rows-repeated")), 100);
+                int first = builder.rows();
+                builder.row();
+                children(r, c -> tableCell(r, c, builder, cells));
+                // A repeated row is copied as empty cells: LibreOffice repeats only rows without text.
+                int columns = builder.cellsInRow();
+                for (int i = 1; i < repeated; i++) {
+                    builder.row();
+                    for (int k = 0; k < columns; k++) builder.emptyCell(characterAttributes(styles.paragraph(null)));
+                }
+                if (inHeader && first > 0) header[0] = false;
+            }
+            default -> skip(r);
+        }
+    }
+
+    private void tableCell(XMLStreamReader r, String child, TableBuilder builder, List<Map<String, String>> cells)
+            throws XMLStreamException {
+        boolean covered = child.equals("table:covered-table-cell");
+        if (!covered && !child.equals("table:table-cell")) {
+            skip(r);
+            return;
+        }
+        int repeated = Math.min(repeat(attribute(r, Odf.TABLE, "number-columns-repeated")), 64);
+        Map<String, String> props = covered ? Map.of()
+                : styles.table("table-cell", attribute(r, Odf.TABLE, "style-name"));
+        if (cells.size() < 4 && !covered) cells.add(props);
+        AttributeSet empty = characterAttributes(styles.paragraph(null));
+        if (covered) {
+            skip(r);
+        } else {
+            builder.cellStart();
+            block(r, null);
+            flushText();
+        }
+        String color = props.get("fo:background-color");
+        java.awt.Color background = color != null && color.matches("#[0-9a-fA-F]{6}")
+                ? new java.awt.Color(Integer.parseInt(color.substring(1), 16)) : null;
+        TableAttributes.VerticalAlignment v = switch (props.getOrDefault("style:vertical-align", "top")) {
+            case "middle" -> TableAttributes.VerticalAlignment.CENTER;
+            case "bottom" -> TableAttributes.VerticalAlignment.BOTTOM;
+            default -> TableAttributes.VerticalAlignment.TOP;
+        };
+        if (covered) builder.emptyCell(empty);
+        else builder.cellEnd(background, v, empty);
+        for (int i = 1; i < repeated; i++) builder.emptyCell(empty);
+    }
+
+    private static int repeat(String value) {
+        try {
+            return value == null ? 1 : Math.max(1, Integer.parseInt(value.strip()));
+        } catch (NumberFormatException e) {
+            return 1;
+        }
+    }
+
+    /**
+     * The table's format from the file: the column widths (or the table's width shared out), alignment, and
+     * lines, line width, colour and padding from the first cells' borders.
+     */
+    private TableFormat tableFormat(List<Double> widths, int columns, Map<String, String> table,
+                                    List<Map<String, String>> cells, int rows) {
+        int n = Math.max(1, Math.max(columns, widths.size()));
+        double total = Odf.points(table.get("style:width"));
+        double known = 0;
+        int unknown = 0;
+        for (double w : widths) {
+            if (Double.isNaN(w)) unknown++;
+            else known += w;
+        }
+        unknown += Math.max(0, n - widths.size());
+        double fill = Double.isNaN(total) || total <= known ? (known > 0 ? known / Math.max(1, n - unknown) : 0)
+                : (total - known) / Math.max(1, unknown);
+        if (fill <= 0) fill = (settings().contentWidth()) / n;
+        double[] w = new double[n];
+        for (int c = 0; c < n; c++) {
+            w[c] = c < widths.size() && !Double.isNaN(widths.get(c)) ? widths.get(c) : fill;
+        }
+        TableFormat format = TableFormat.of(w).withAlignment(switch (table.getOrDefault("table:align", "left")) {
+            case "center" -> TableFormat.Alignment.CENTER;
+            case "right" -> TableFormat.Alignment.RIGHT;
+            default -> TableFormat.Alignment.LEFT;
+        });
+        Map<String, String> first = cells.isEmpty() ? Map.of() : cells.getFirst();
+        Map<String, String> second = cells.size() > 1 ? cells.get(1) : Map.of();
+        String left = border(first, "left");
+        String right = border(first, "right");
+        String top = border(first, "top");
+        String bottom = border(first, "bottom");
+        boolean innerVertical = columns > 1 && (isOn(right) || isOn(border(second, "left")));
+        boolean innerHorizontal = rows > 1 && isOn(bottom);
+        format = format.withLines(TableLines.guess(innerVertical, innerHorizontal, isOn(left), isOn(top)));
+        for (String line : new String[]{left, top, right, bottom}) {
+            if (!isOn(line)) continue;
+            for (String part : line.strip().split("\\s+")) {
+                double points = Odf.points(part);
+                if (!Double.isNaN(points)) format = format.withLineWidth((float) points);
+                if (part.matches("#[0-9a-fA-F]{6}")) {
+                    format = format.withLineColor(new java.awt.Color(Integer.parseInt(part.substring(1), 16)));
+                }
+            }
+            break;
+        }
+        double padding = Odf.points(first.getOrDefault("fo:padding-left", first.get("fo:padding")));
+        if (!Double.isNaN(padding)) format = format.withPadding(padding);
+        return format;
+    }
+
+    private static String border(Map<String, String> cell, String side) {
+        String own = cell.get("fo:border-" + side);
+        return own != null ? own : cell.get("fo:border");
+    }
+    // --8<-- [end:table]
 
     private void list(XMLStreamReader r, ListPlace outer) throws XMLStreamException {
         ListPlace place;

@@ -3,6 +3,7 @@ package eu.amadeos.apps.writepad.service.format.rtf;
 import eu.amadeos.apps.writepad.domain.DocumentSettings;
 import eu.amadeos.apps.writepad.domain.Margins;
 import eu.amadeos.apps.writepad.domain.Orientation;
+import eu.amadeos.apps.writepad.domain.TableFormat;
 import eu.amadeos.apps.writepad.domain.Units;
 import eu.amadeos.apps.writepad.service.format.DocumentContent;
 import eu.amadeos.apps.writepad.service.format.Documents;
@@ -12,6 +13,8 @@ import eu.amadeos.apps.writepad.service.list.ListAttributes;
 import eu.amadeos.apps.writepad.service.list.ListFormat;
 import eu.amadeos.apps.writepad.service.list.ListNumbering;
 import eu.amadeos.commons.print.PaperSize;
+import eu.amadeos.apps.writepad.service.format.TableSamples;
+import eu.amadeos.apps.writepad.service.table.Tables;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.text.AttributeSet;
@@ -426,5 +429,39 @@ class RtfFormatTest {
     @Test
     void readsPicturesLibreOfficeWrote() throws IOException {
         PictureSamples.check(fixture("libreoffice-pictures.rtf"), true, true, false);
+    }
+
+    @Test
+    void keepsTables() throws IOException {
+        TableSamples.check(format.read(format.write(TableSamples.document())), true);
+    }
+
+    /** LibreOffice 24.2 opened what amade-writepad wrote and saved it again (it drops the \\trhdr). */
+    @Test
+    void readsTablesLibreOfficeWrote() throws IOException {
+        TableSamples.check(fixture("libreoffice-tables.rtf"), true, false);
+    }
+
+    @Test
+    void splitsMergedCellsAndFlattensTablesInTables() throws IOException {
+        DocumentContent c = read("{\\rtf1 \\trowd\\trgaph108\\clmgf\\cellx2000\\clmrg\\cellx4000\\cellx6000"
+                + "\\pard\\intbl wide\\cell\\cell c\\cell\\row"
+                + "\\trowd\\cellx2000\\cellx4000\\cellx6000\\pard\\intbl a\\cell"
+                + "\\pard\\intbl\\itap2 in1\\nestcell in2\\nestcell{\\*\\nesttableprops\\trowd\\cellx1000\\cellx2000\\nestrow}"
+                + "{\\nonesttables\\par}\\pard\\intbl\\cell\\cell\\row"
+                + "\\pard after\\par}");
+        Tables.Table t = TableSamples.table(c);
+        assertEquals("wide||c/a|in1~in2~|", TableSamples.grid(c.document(), t));
+        assertEquals(3, t.format().columns());
+        assertEquals(100, t.format().width(0), 0.5);
+        assertEquals(5.4, t.format().padding(), 0.1, "\\trgaph without \\trpaddl");
+        assertTrue(text(c).endsWith("after"), text(c));
+    }
+
+    @Test
+    void aTableAtTheEndKeepsTheParagraphAfterIt() throws IOException {
+        DocumentContent c = read("{\\rtf1 \\trowd\\cellx2000\\pard\\intbl x\\cell\\row}");
+        assertEquals("x", TableSamples.grid(c.document(), TableSamples.table(c)));
+        assertEquals("x\n", text(c));
     }
 }

@@ -10,6 +10,9 @@ import eu.amadeos.apps.writepad.service.format.WritepadDocument;
 import eu.amadeos.apps.writepad.service.layout.FloatingPicture;
 import eu.amadeos.apps.writepad.service.layout.TabStops;
 import eu.amadeos.apps.writepad.service.list.ListAttributes;
+import eu.amadeos.apps.writepad.domain.TableFormat;
+import eu.amadeos.apps.writepad.service.table.TableAttributes;
+import eu.amadeos.apps.writepad.service.table.Tables;
 import eu.amadeos.apps.writepad.service.list.ListFormat;
 import eu.amadeos.apps.writepad.service.picture.PictureAttributes;
 
@@ -223,12 +226,101 @@ final class DocxWriter {
     private void document(XMLStreamWriter xml) throws XMLStreamException {
         root(xml, "document");
         start(xml, "body");
-        Element root = document.getDefaultRootElement();
-        for (int p = 0; p < root.getElementCount(); p++) paragraph(xml, root.getElement(p));
+        for (Tables.Block block : Tables.blocks(document)) {
+            if (block instanceof Tables.Table table) table(xml, table);
+            else paragraph(xml, ((Tables.Paragraph) block).element());
+        }
         section(xml);
         xml.writeEndElement();
         xml.writeEndElement();
     }
+
+    // --8<-- [start:table]
+    /**
+     * A table: width, alignment, lines and padding in the table's properties, the column widths in its grid,
+     * the heading row marked to repeat, and each cell's width, shading and vertical alignment.
+     */
+    private void table(XMLStreamWriter xml, Tables.Table table) throws XMLStreamException {
+        TableFormat f = table.format();
+        int columns = Math.max(f.columns(), table.columns());
+        double scale = Math.min(1, settings.contentWidth() / f.totalWidth());
+        start(xml, "tbl");
+        start(xml, "tblPr");
+        empty(xml, "tblW", "w", String.valueOf(Ooxml.twips(f.totalWidth() * scale)), "type", "dxa");
+        empty(xml, "jc", "val", switch (f.alignment()) {
+            case LEFT -> "left";
+            case CENTER -> "center";
+            case RIGHT -> "right";
+        });
+        start(xml, "tblBorders");
+        boolean all = f.lines() == TableFormat.Lines.ALL;
+        boolean outer = all || f.lines() == TableFormat.Lines.OUTER;
+        boolean rows = all || f.lines() == TableFormat.Lines.ROWS;
+        border(xml, "top", outer || rows, f);
+        border(xml, "left", outer, f);
+        border(xml, "bottom", outer || rows, f);
+        border(xml, "right", outer, f);
+        border(xml, "insideH", rows, f);
+        border(xml, "insideV", all, f);
+        xml.writeEndElement();
+        empty(xml, "tblLayout", "type", "fixed");
+        start(xml, "tblCellMar");
+        String padding = String.valueOf(Ooxml.twips(f.padding()));
+        for (String side : new String[]{"top", "left", "bottom", "right"}) empty(xml, side, "w", padding, "type", "dxa");
+        xml.writeEndElement();
+        xml.writeEndElement();
+        start(xml, "tblGrid");
+        for (int c = 0; c < columns; c++) empty(xml, "gridCol", "w", String.valueOf(Ooxml.twips(f.width(c) * scale)));
+        xml.writeEndElement();
+        for (int r = 0; r < table.rows().size(); r++) {
+            start(xml, "tr");
+            if (r == 0 && f.repeatHeader() && table.rows().size() > 1) {
+                start(xml, "trPr");
+                empty(xml, "tblHeader");
+                xml.writeEndElement();
+            }
+            List<Tables.Cell> cells = table.rows().get(r).cells();
+            for (int c = 0; c < columns; c++) {
+                Tables.Cell cell = c < cells.size() ? cells.get(c) : null;
+                AttributeSet a = cell == null ? null : cell.first().getAttributes();
+                start(xml, "tc");
+                start(xml, "tcPr");
+                empty(xml, "tcW", "w", String.valueOf(Ooxml.twips(f.width(c) * scale)), "type", "dxa");
+                Color background = TableAttributes.background(a);
+                if (background != null) {
+                    empty(xml, "shd", "val", "clear", "color", "auto", "fill", hex(background));
+                }
+                TableAttributes.VerticalAlignment v = TableAttributes.verticalAlignment(a);
+                if (v != TableAttributes.VerticalAlignment.TOP) {
+                    empty(xml, "vAlign", "val", v == TableAttributes.VerticalAlignment.CENTER ? "center" : "bottom");
+                }
+                xml.writeEndElement();
+                if (cell == null) {
+                    empty(xml, "p");
+                } else {
+                    for (Element p : cell.paragraphs()) paragraph(xml, p);
+                }
+                xml.writeEndElement();
+            }
+            xml.writeEndElement();
+        }
+        xml.writeEndElement();
+    }
+
+    /** A line of the table: single, its width in eighths of a point, or none. */
+    private static void border(XMLStreamWriter xml, String side, boolean on, TableFormat f) throws XMLStreamException {
+        if (on && f.lineWidth() > 0) {
+            empty(xml, side, "val", "single", "sz", String.valueOf(Math.max(2, Math.round(f.lineWidth() * 8))),
+                    "space", "0", "color", hex(f.lineColor()));
+        } else {
+            empty(xml, side, "val", "nil");
+        }
+    }
+
+    private static String hex(Color c) {
+        return String.format("%06X", c.getRGB() & 0xFFFFFF);
+    }
+    // --8<-- [end:table]
 
     private void section(XMLStreamWriter xml) throws XMLStreamException {
         start(xml, "sectPr");
