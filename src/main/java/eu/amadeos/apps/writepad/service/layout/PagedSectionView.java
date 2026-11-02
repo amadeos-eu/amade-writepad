@@ -1,6 +1,8 @@
 package eu.amadeos.apps.writepad.service.layout;
 
+import eu.amadeos.apps.writepad.domain.Picture;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
+import eu.amadeos.apps.writepad.service.picture.PictureAttributes;
 
 import javax.swing.text.BadLocationException;
 import javax.swing.text.BoxView;
@@ -25,6 +27,8 @@ import java.awt.Shape;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Point2D;
 import java.awt.geom.Rectangle2D;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.IntFunction;
 
 /**
@@ -45,6 +49,8 @@ public final class PagedSectionView extends BoxView {
     private final PageLayout layout;
     private int pageCount = 1;
     private IntFunction<String> footer = page -> null;
+    /** The floating pictures of the last layout. */
+    private List<FloatingPicture> floating = List.of();
 
     PagedSectionView(Element element, PageLayout layout) {
         super(element, Y_AXIS);
@@ -71,7 +77,10 @@ public final class PagedSectionView extends BoxView {
         applyInsets();
         for (int i = 0; i < getViewCount(); i++) {
             View child = getView(i);
-            if (child instanceof PagedParagraphView paragraph) paragraph.setStartY(-1);
+            if (child instanceof PagedParagraphView paragraph) {
+                paragraph.setStartY(-1);
+                paragraph.setFloats(List.of(), false);
+            }
         }
         layoutChanged(X_AXIS);
         layoutChanged(Y_AXIS);
@@ -96,11 +105,16 @@ public final class PagedSectionView extends BoxView {
     protected void layoutMajorAxis(int targetSpan, int axis, int[] offsets, int[] spans) {
         int width = layout.contentWidth();
         int y = layout.contentTop(0);
+        List<FloatingPicture> placed = new ArrayList<>();
+        int bottom = y;
         for (int i = 0; i < getViewCount(); i++) {
             View child = getView(i);
             int height;
             if (child instanceof PagedParagraphView paragraph) {
+                boolean moved = paragraph.startY() != y;
                 paragraph.setStartY(y);
+                placeFloats(paragraph, y + paragraph.topInset(), placed);
+                paragraph.setFloats(floatsBelow(placed, y), moved);
                 paragraph.setSize(width, 0);
                 height = paragraph.laidOutHeight();
             } else {
@@ -111,7 +125,9 @@ public final class PagedSectionView extends BoxView {
             spans[i] = height;
             y += height;
         }
-        int pages = layout.pagesUpTo(y);
+        floating = List.copyOf(placed);
+        for (FloatingPicture f : placed) bottom = Math.max(bottom, (int) Math.ceil(f.box().getMaxY()));
+        int pages = layout.pagesUpTo(Math.max(y, bottom));
         if (pages != pageCount) {
             pageCount = pages;
             // The component has to grow or shrink; the parent asks for the preferred size again.
@@ -120,6 +136,95 @@ public final class PagedSectionView extends BoxView {
         }
     }
     // --8<-- [end:stack]
+
+    // --8<-- [start:place-floats]
+    /**
+     * Places the floating pictures of a paragraph at its top, at the left or right margin. A picture that does
+     * not fit on the rest of the page goes to the top of the next one; pictures on the same side stack.
+     */
+    private void placeFloats(PagedParagraphView paragraph, int top, List<FloatingPicture> placed) {
+        for (PictureAttributes.Placed p : PictureAttributes.in(paragraph.getElement())) {
+            Picture picture = p.picture();
+            if (!picture.placement().floats()) continue;
+            double border = 2 * picture.border().width();
+            double w = Math.min(picture.width() + border, layout.contentWidth());
+            double h = picture.height() + border;
+            boolean left = picture.placement() == Picture.Placement.FLOAT_LEFT;
+            double x = PageLayout.GAP + layout.left() + (left ? 0 : layout.contentWidth() - w);
+            int y = layout.place(top, (int) Math.ceil(h));
+            for (FloatingPicture other : placed) {
+                boolean sameSide = other.picture().placement() == picture.placement();
+                if (sameSide && other.box().getMaxY() + FloatingPicture.GAP_BELOW > y
+                        && other.box().getY() < y + h) {
+                    y = layout.place((int) Math.ceil(other.box().getMaxY()) + FloatingPicture.GAP_BELOW,
+                            (int) Math.ceil(h));
+                }
+            }
+            placed.add(new FloatingPicture(p.offset(), picture, new Rectangle2D.Double(x, y, w, h)));
+        }
+    }
+
+    /** The room taken by the pictures that reach below y. */
+    private static List<FloatArea> floatsBelow(List<FloatingPicture> placed, int y) {
+        List<FloatArea> areas = new ArrayList<>();
+        for (FloatingPicture f : placed) {
+            FloatArea a = f.area();
+            if (a.bottom() > y) areas.add(a);
+        }
+        return areas;
+    }
+    // --8<-- [end:place-floats]
+
+    /** The floating pictures as the last layout placed them, boxes in layout space (points). */
+    public List<FloatingPicture> floatingPictures() {
+        return floating;
+    }
+
+    /** The floating picture at a point of the component (screen pixels), null if none. */
+    public FloatingPicture floatingPictureAt(double x, double y, Shape allocation) {
+        Point2D.Double p = toPoints(x, y, allocation);
+        for (int i = floating.size() - 1; i >= 0; i--) {
+            if (floating.get(i).box().contains(p)) return floating.get(i);
+        }
+        return null;
+    }
+
+    /**
+     * The box of the picture at an offset, border included, in layout space (points); null if there is no
+     * picture there or it is not laid out.
+     */
+    public Rectangle2D pictureBox(int offset) {
+        for (FloatingPicture f : floating) {
+            if (f.offset() == offset) return f.box();
+        }
+        Shape a = pointsAllocation();
+        View v = this;
+        while (!(v instanceof PictureView)) {
+            if (v == null || v.getViewCount() == 0) return null;
+            int i = v.getViewIndex(offset, Position.Bias.Forward);
+            if (i < 0) return null;
+            a = v.getChildAllocation(i, a);
+            v = v.getView(i);
+            if (a == null || v.getStartOffset() > offset || v.getEndOffset() <= offset) return null;
+        }
+        Rectangle r = a.getBounds();
+        float w = v.getPreferredSpan(X_AXIS);
+        float h = v.getPreferredSpan(Y_AXIS);
+        return new Rectangle2D.Double(r.x, r.y + r.height - h, w, h);
+    }
+
+    /** A box in layout space as the component's pixels. */
+    public Rectangle toScreen(Rectangle2D points, Shape allocation) {
+        return toScreen(allocation).createTransformedShape(points).getBounds();
+    }
+
+    private void paintFloats(Graphics2D g) {
+        Rectangle clip = g.getClipBounds();
+        for (FloatingPicture f : floating) {
+            if (clip != null && !f.box().intersects(clip)) continue;
+            PictureView.paintPicture(g, f.picture(), f.box());
+        }
+    }
 
     @Override
     public float getPreferredSpan(int axis) {
@@ -193,6 +298,7 @@ public final class PagedSectionView extends BoxView {
                 paintFooter(g2, page);
             }
             super.paint(g2, pointsAllocation());
+            paintFloats(g2);
         } finally {
             g2.dispose();
         }
@@ -212,6 +318,7 @@ public final class PagedSectionView extends BoxView {
             g2.translate(-PageLayout.GAP, -layout.pageTop(page));
             paintFooter(g2, page);
             super.paint(g2, pointsAllocation());
+            paintFloats(g2);
         } finally {
             g2.dispose();
         }

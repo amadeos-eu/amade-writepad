@@ -87,6 +87,8 @@ public final class MainMenuBar extends JMenuBar {
         view.add(zoom);
 
         insert = menu("menu.insert");
+        insert.add(item(actions.insertPicture));
+        insert.addSeparator();
         item(insert, "menu.insert.sample-text", 0, 0, presenter::insertSampleText);
 
         JMenu format = menu("menu.format");
@@ -103,6 +105,7 @@ public final class MainMenuBar extends JMenuBar {
         format.addSeparator();
         format.add(item(actions.paragraph));
         format.add(item(actions.tabs));
+        format.add(item(actions.pictureProperties));
         format.addSeparator();
         format.add(check(actions.bullets));
         format.add(check(actions.numbering));

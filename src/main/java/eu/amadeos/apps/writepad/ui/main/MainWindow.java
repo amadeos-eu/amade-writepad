@@ -15,7 +15,11 @@ import eu.amadeos.apps.writepad.service.layout.PageLayout;
 import eu.amadeos.apps.writepad.service.layout.PagedSectionView;
 import eu.amadeos.apps.writepad.service.print.PrintService;
 import eu.amadeos.apps.writepad.ui.dialog.PageSetupDialog;
+import eu.amadeos.apps.writepad.domain.Picture;
 import eu.amadeos.apps.writepad.ui.dialog.ParagraphDialog;
+import eu.amadeos.apps.writepad.ui.dialog.PictureChooser;
+import eu.amadeos.apps.writepad.ui.dialog.PictureDialog;
+import eu.amadeos.apps.writepad.ui.editor.PictureEditing;
 import eu.amadeos.apps.writepad.ui.dialog.TabsDialog;
 import eu.amadeos.apps.writepad.ui.editor.PageEditor;
 import eu.amadeos.apps.writepad.ui.editor.SampleText;
@@ -29,7 +33,9 @@ import javax.swing.JFileChooser;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JToolBar;
@@ -45,6 +51,7 @@ import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.awt.print.PrinterException;
@@ -55,6 +62,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * The main window: menu bar, toolbar and format bar, the ruler, the page editor on its desk, and a status
@@ -81,6 +89,7 @@ public final class MainWindow extends JFrame implements MainView {
     private MainPresenter presenter;
     private boolean updatingZoom;
     private File lastDirectory;
+    private final PictureChooser pictureChooser;
 
     @Inject
     public MainWindow(PageLayout layout, Messages msg, LocaleSettings locales, PrintService printService,
@@ -92,6 +101,7 @@ public final class MainWindow extends JFrame implements MainView {
         this.locales = locales;
         this.printService = printService;
         this.unit = unit;
+        this.pictureChooser = new PictureChooser(msg);
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         editor = new PageEditor(layout);
         editor.setFooter(page -> msg.format("footer.page", page + 1, editor.section().pageCount()));
@@ -126,6 +136,45 @@ public final class MainWindow extends JFrame implements MainView {
             @Override
             public Optional<List<TabStop>> tabs(List<TabStop> current) {
                 return new TabsDialog(msg, unit, current, layout.contentWidth()).showDialog(MainWindow.this);
+            }
+
+            @Override
+            public Optional<Path> choosePicture() {
+                return pictureChooser.chooseOpen(MainWindow.this);
+            }
+
+            @Override
+            public Optional<PictureDialog.Values> picture(Picture current, PictureEditing.Layout pictureLayout,
+                                                          Supplier<Optional<Picture>> replacement) {
+                return new PictureDialog(msg, unit, current, pictureLayout, layout.contentWidth(), replacement)
+                        .showDialog(MainWindow.this);
+            }
+
+            @Override
+            public Optional<Path> chooseSavePicture(String suggestedName) {
+                return pictureChooser.chooseSave(MainWindow.this, suggestedName);
+            }
+
+            @Override
+            public void showError(String message) {
+                MainWindow.this.showError(message);
+            }
+        });
+        editor.setPictureListener(new PageEditor.PictureListener() {
+            @Override
+            public void open(int offset) {
+                actions.pictureDialog();
+            }
+
+            @Override
+            public void menu(int offset, MouseEvent e) {
+                actions.update();
+                pictureMenu().show(editor, e.getX(), e.getY());
+            }
+
+            @Override
+            public void group(Runnable change) {
+                actions.apply(change);
             }
         });
         ruler = new Ruler(editor, unit, msg);
@@ -169,6 +218,17 @@ public final class MainWindow extends JFrame implements MainView {
             }
         });
         layoutChanged();
+    }
+
+    /** Right click on a picture: the clipboard, the Picture dialog and what else concerns the picture. */
+    private JPopupMenu pictureMenu() {
+        JPopupMenu menu = new JPopupMenu();
+        for (javax.swing.Action a : new javax.swing.Action[]{actions.cut, actions.copy, actions.paste, null,
+                actions.pictureProperties, actions.replacePicture, actions.originalSize, null, actions.savePictureAs}) {
+            if (a == null) menu.addSeparator();
+            else menu.add(new JMenuItem(a));
+        }
+        return menu;
     }
 
     public PageEditor editor() {

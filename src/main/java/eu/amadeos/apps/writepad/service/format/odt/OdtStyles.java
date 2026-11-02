@@ -21,6 +21,8 @@ final class OdtStyles {
         final String parent;
         final Map<String, String> paragraph = new HashMap<>();
         final Map<String, String> text = new HashMap<>();
+        /** The graphic properties of a frame style: wrap, position, border. */
+        final Map<String, String> graphic = new HashMap<>();
         /** Tab stops if the style defines them, else null (inherited). */
         List<Tab> tabs;
         String listStyle;
@@ -105,6 +107,15 @@ final class OdtStyles {
         if (defaultStyle != null) apply(r, defaultStyle, false);
         for (Style style : chain("paragraph", name)) apply(r, style, true);
         return r;
+    }
+
+    /** A frame style's graphic properties with those it inherits. */
+    Map<String, String> graphic(String name) {
+        Map<String, String> g = new HashMap<>();
+        Style defaultStyle = defaults.get("graphic");
+        if (defaultStyle != null) g.putAll(defaultStyle.graphic);
+        for (Style style : chain("graphic", name)) g.putAll(style.graphic);
+        return g;
     }
 
     /** A run's formatting: that of its surroundings with a text style applied. */

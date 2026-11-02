@@ -20,6 +20,8 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
 import java.awt.Shape;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * A paragraph whose lines never cross a page boundary: a line that would run into the bottom margin moves
@@ -48,6 +50,17 @@ final class PagedParagraphView extends ParagraphView {
     private int pushed;
     /** Height of the last layout, insets and moved lines included. */
     private int laidOutHeight;
+    /** Floating pictures that may reach into this paragraph, in layout space. */
+    private List<FloatArea> floats = List.of();
+    /** Per row, while floats are about: the room taken at the left and right, and where it moved down to. */
+    private final List<RowShape> shapes = new ArrayList<>();
+
+    /** Lines narrower than this move below the floating picture instead of squeezing beside it. */
+    static final int MIN_LINE = 54;
+
+    private record RowShape(int left, int right, int movedTo) {
+        static final RowShape FULL = new RowShape(0, 0, -1);
+    }
 
     PagedParagraphView(Element element, PageLayout layout) {
         super(element);
@@ -62,8 +75,123 @@ final class PagedParagraphView extends ParagraphView {
         }
     }
 
+    /**
+     * Sets the floating pictures that may reach into the paragraph. The lines are broken again when they change,
+     * or when the paragraph moved while floats are about.
+     */
+    void setFloats(List<FloatArea> areas, boolean moved) {
+        if (!areas.equals(floats) || moved && !areas.isEmpty()) {
+            floats = List.copyOf(areas);
+            shapes.clear();
+            // Both axes: the flow strategy only rebreaks all rows when the major allocation is invalid.
+            layoutChanged(X_AXIS);
+            layoutChanged(Y_AXIS);
+        }
+    }
+
+    int startY() {
+        return startY;
+    }
+
+    int topInset() {
+        return getTopInset();
+    }
+
     int laidOutHeight() {
         return laidOutHeight;
+    }
+
+    // --8<-- [start:floats]
+    /**
+     * Where row {@code row} goes and how much room floating pictures leave it. The rows above are already
+     * filled, so their heights are known; this row is assumed as high as the one before it (the first as high
+     * as its font). A row that would be narrower than {@link #MIN_LINE} moves below the picture.
+     */
+    private RowShape shape(int row) {
+        if (floats.isEmpty() || startY < 0) return RowShape.FULL;
+        while (shapes.size() > row) shapes.removeLast();
+        int y = startY + getTopInset();
+        for (int k = 0; k < row; k++) {
+            int h = rowHeight(k);
+            y = layout.place(y, h);
+            RowShape s = k < shapes.size() ? shapes.get(k) : RowShape.FULL;
+            if (s.movedTo() > y) y = s.movedTo();
+            y += h;
+            if (k >= shapes.size()) shapes.add(s);
+        }
+        int h = row > 0 ? rowHeight(row - 1) : lineHeight();
+        y = layout.place(y, h);
+        int textLeft = columnLeft() + getLeftInset();
+        int textRight = columnLeft() + layout.contentWidth() - getRightInset();
+        int movedTo = -1;
+        RowShape result = RowShape.FULL;
+        for (int guard = 0; guard < 20; guard++) {
+            int left = 0;
+            int right = 0;
+            int clearBelow = Integer.MAX_VALUE;
+            for (FloatArea f : floats) {
+                if (f.y() >= y + h || f.bottom() <= y) continue;
+                if (f.left()) left = Math.max(left, f.x() + f.width() - textLeft);
+                else right = Math.max(right, textRight - f.x());
+                clearBelow = Math.min(clearBelow, f.bottom());
+            }
+            result = new RowShape(Math.max(0, left), Math.max(0, right), movedTo);
+            if (clearBelow == Integer.MAX_VALUE || textRight - textLeft - left - right >= MIN_LINE) break;
+            y = layout.place(clearBelow, h);
+            movedTo = y;
+            result = new RowShape(0, 0, movedTo);
+        }
+        shapes.add(result);
+        return result;
+    }
+    // --8<-- [end:floats]
+
+    private RowShape knownShape(int row) {
+        return row < shapes.size() ? shapes.get(row) : RowShape.FULL;
+    }
+
+    private int rowHeight(int row) {
+        return row < getViewCount() ? (int) Math.ceil(getView(row).getPreferredSpan(Y_AXIS)) : lineHeight();
+    }
+
+    /** The height of a line in the paragraph's first font, for a row whose height is not known yet. */
+    private int lineHeight() {
+        if (getDocument() instanceof StyledDocument document) {
+            Font font = document.getFont(document.getCharacterElement(getStartOffset()).getAttributes());
+            Container host = getContainer();
+            FontMetrics fm = host != null ? host.getFontMetrics(font) : null;
+            if (fm != null) return fm.getHeight();
+            return (int) Math.ceil(font.getSize2D() * 1.2f);
+        }
+        return 14;
+    }
+
+    @Override
+    public int getFlowSpan(int index) {
+        int span = super.getFlowSpan(index);
+        if (span == Integer.MAX_VALUE || floats.isEmpty()) return span;
+        RowShape s = knownShape(index);
+        return Math.max(1, span - s.left() - s.right());
+    }
+
+    @Override
+    protected void layoutMinorAxis(int targetSpan, int axis, int[] offsets, int[] spans) {
+        super.layoutMinorAxis(targetSpan, axis, offsets, spans);
+        if (floats.isEmpty()) return;
+        for (int i = 0; i < getViewCount(); i++) {
+            RowShape s = knownShape(i);
+            if (s.left() == 0 && s.right() == 0) continue;
+            View v = getView(i);
+            int room = Math.max(1, targetSpan - s.left() - s.right());
+            int max = (int) v.getMaximumSpan(axis);
+            if (max < room) {
+                offsets[i] = s.left() + (int) ((room - max) * v.getAlignment(axis));
+                spans[i] = max;
+            } else {
+                offsets[i] = s.left();
+                spans[i] = Math.max((int) v.getMinimumSpan(axis), room);
+            }
+        }
     }
 
     // --8<-- [start:layout]
@@ -75,6 +203,8 @@ final class PagedParagraphView extends ParagraphView {
         for (int i = 0; i < getViewCount(); i++) {
             int span = (int) Math.ceil(getView(i).getPreferredSpan(Y_AXIS));
             int placed = layout.place(top + offset, span);
+            int movedTo = knownShape(i).movedTo();
+            if (movedTo > placed) placed = movedTo;
             moved += placed - (top + offset);
             offsets[i] = placed - top;
             spans[i] = span;
@@ -158,7 +288,9 @@ final class PagedParagraphView extends ParagraphView {
     @Override
     public int getFlowStart(int row) {
         int rowInset = super.getFlowStart(row) - (int) getTabBase();
-        return columnLeft() + getLeftInset() + rowInset;
+        // The flow asks for the start before the span: this is where the row's room is worked out.
+        int floatInset = floats.isEmpty() ? 0 : shape(row).left();
+        return columnLeft() + getLeftInset() + rowInset + floatInset;
     }
 
     @Override

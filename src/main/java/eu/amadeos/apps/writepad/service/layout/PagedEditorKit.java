@@ -1,6 +1,7 @@
 package eu.amadeos.apps.writepad.service.layout;
 
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
+import eu.amadeos.apps.writepad.service.picture.PictureAttributes;
 
 import javax.swing.text.AbstractDocument;
 import javax.swing.text.BoxView;
@@ -57,8 +58,11 @@ public final class PagedEditorKit extends StyledEditorKit {
             return switch (kind) {
                 case AbstractDocument.SectionElementName -> new PagedSectionView(element, layout);
                 case AbstractDocument.ParagraphElementName -> new PagedParagraphView(element, layout);
-                case AbstractDocument.ContentElementName -> WritepadDocument.isLineBreak(element.getAttributes())
-                        ? new LineBreakView(element) : new LabelView(element);
+                case AbstractDocument.ContentElementName -> {
+                    if (PictureAttributes.isPicture(element.getAttributes())) yield new PictureView(element);
+                    yield WritepadDocument.isLineBreak(element.getAttributes())
+                            ? new LineBreakView(element) : new LabelView(element);
+                }
                 case StyleConstants.ComponentElementName -> new ComponentView(element);
                 case StyleConstants.IconElementName -> new IconView(element);
                 default -> new BoxView(element, View.Y_AXIS);
