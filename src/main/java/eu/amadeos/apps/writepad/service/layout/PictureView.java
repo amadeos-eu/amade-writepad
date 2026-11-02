@@ -2,6 +2,7 @@ package eu.amadeos.apps.writepad.service.layout;
 
 import eu.amadeos.apps.writepad.domain.Picture;
 import eu.amadeos.apps.writepad.service.picture.PictureAttributes;
+import eu.amadeos.apps.writepad.service.table.TableAttributes;
 
 import javax.swing.text.BadLocationException;
 import javax.swing.text.Element;
@@ -34,15 +35,20 @@ final class PictureView extends View {
         return PictureAttributes.picture(getElement().getAttributes());
     }
 
+    /** Whether the picture floats: pictures in table cells always sit in the line. */
     private boolean floats() {
         Picture p = picture();
-        return p != null && p.placement().floats();
+        return p != null && floats(p, getElement());
+    }
+
+    static boolean floats(Picture p, Element character) {
+        return p.placement().floats() && !TableAttributes.inTable(character.getParentElement().getAttributes());
     }
 
     @Override
     public float getPreferredSpan(int axis) {
         Picture p = picture();
-        if (p == null || p.placement().floats()) return 0;
+        if (p == null || floats()) return 0;
         double border = 2 * p.border().width();
         return (float) ((axis == X_AXIS ? p.width() : p.height()) + border);
     }
@@ -66,7 +72,7 @@ final class PictureView extends View {
     @Override
     public void paint(Graphics g, Shape a) {
         Picture p = picture();
-        if (p == null || p.placement().floats()) return;
+        if (p == null || floats()) return;
         Rectangle r = a.getBounds();
         paintPicture((Graphics2D) g, p, new Rectangle2D.Double(r.x, r.y + r.height - getPreferredSpan(Y_AXIS),
                 getPreferredSpan(X_AXIS), getPreferredSpan(Y_AXIS)));

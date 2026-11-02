@@ -7,6 +7,7 @@ import javax.swing.SizeRequirements;
 import javax.swing.text.AttributeSet;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.Element;
+import javax.swing.text.GlyphView;
 import javax.swing.text.ParagraphView;
 import javax.swing.text.Position;
 import javax.swing.text.StyleConstants;
@@ -54,6 +55,9 @@ final class PagedParagraphView extends ParagraphView {
     private List<FloatArea> floats = List.of();
     /** Per row, while floats are about: the room taken at the left and right, and where it moved down to. */
     private final List<RowShape> shapes = new ArrayList<>();
+    /** The text column in layout space: the page's, or a table cell's inside its padding; -1 for the page. */
+    private int columnX = -1;
+    private int columnWidth = -1;
 
     /** Lines narrower than this move below the floating picture instead of squeezing beside it. */
     static final int MIN_LINE = 54;
@@ -89,6 +93,29 @@ final class PagedParagraphView extends ParagraphView {
         }
     }
 
+    /**
+     * Puts the paragraph into a table cell: its text runs from x (layout space) over the given width. Lines are
+     * broken again when the column changes. {@code x < 0} puts it back into the page's column.
+     */
+    void setColumn(int x, int width) {
+        if (x != columnX || width != columnWidth) {
+            columnX = x;
+            columnWidth = width;
+            shapes.clear();
+            layoutChanged(X_AXIS);
+            layoutChanged(Y_AXIS);
+        }
+    }
+
+    boolean inCell() {
+        return columnX >= 0;
+    }
+
+    /** The width of the cell's text column. */
+    int cellWidth() {
+        return columnWidth;
+    }
+
     int startY() {
         return startY;
     }
@@ -122,7 +149,7 @@ final class PagedParagraphView extends ParagraphView {
         int h = row > 0 ? rowHeight(row - 1) : lineHeight();
         y = layout.place(y, h);
         int textLeft = columnLeft() + getLeftInset();
-        int textRight = columnLeft() + layout.contentWidth() - getRightInset();
+        int textRight = columnLeft() + columnWidth() - getRightInset();
         int movedTo = -1;
         RowShape result = RowShape.FULL;
         for (int guard = 0; guard < 20; guard++) {
@@ -190,6 +217,32 @@ final class PagedParagraphView extends ParagraphView {
             } else {
                 offsets[i] = s.left();
                 spans[i] = Math.max((int) v.getMinimumSpan(axis), room);
+            }
+        }
+    }
+
+    /**
+     * Before the lines are broken again, the text views forget where they may break. Swing's text views keep
+     * those places as document offsets and drop them only when their own paragraph changes; after text was
+     * added or removed above, a paragraph that breaks its lines anew (because it moved beside a floating
+     * picture, or into a table cell of another width) would break them a few letters off, in the middle of
+     * words.
+     */
+    @Override
+    protected void layout(int width, int height) {
+        if (layoutSpan != width || !isLayoutValid(getFlowAxis())) dropBreakSpots();
+        super.layout(width, height);
+    }
+
+    private void dropBreakSpots() {
+        if (layoutPool == null) return;
+        for (int i = 0; i < layoutPool.getViewCount(); i++) {
+            if (layoutPool.getView(i) instanceof GlyphView glyphs) {
+                // Detached for the call, so that the notice does not travel up the views during layout.
+                View parent = glyphs.getParent();
+                glyphs.setParent(null);
+                glyphs.insertUpdate(null, null, null);
+                glyphs.setParent(parent);
             }
         }
     }
@@ -275,9 +328,13 @@ final class PagedParagraphView extends ParagraphView {
         }
     }
 
-    /** Where the text column starts: paragraphs sit at the section's left inset. */
+    /** Where the text column starts: paragraphs sit at the section's left inset, or in their table cell. */
     private int columnLeft() {
-        return PageLayout.GAP + layout.left();
+        return columnX >= 0 ? columnX : PageLayout.GAP + layout.left();
+    }
+
+    private int columnWidth() {
+        return columnX >= 0 ? columnWidth : layout.contentWidth();
     }
 
     /**

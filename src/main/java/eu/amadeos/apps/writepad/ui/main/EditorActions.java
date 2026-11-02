@@ -1,6 +1,13 @@
 package eu.amadeos.apps.writepad.ui.main;
 
 import eu.amadeos.apps.writepad.domain.Picture;
+import eu.amadeos.apps.writepad.domain.TableFormat;
+import eu.amadeos.apps.writepad.service.table.TableAttributes;
+import eu.amadeos.apps.writepad.service.table.TableEditing;
+import eu.amadeos.apps.writepad.service.table.Tables;
+import eu.amadeos.apps.writepad.ui.dialog.CellBackgroundDialog;
+import eu.amadeos.apps.writepad.ui.dialog.InsertTableDialog;
+import eu.amadeos.apps.writepad.ui.dialog.TablePropertiesDialog;
 import eu.amadeos.apps.writepad.service.format.WritepadDocument;
 import eu.amadeos.apps.writepad.service.picture.PictureAttributes;
 import eu.amadeos.apps.writepad.ui.dialog.PictureDialog;
@@ -101,6 +108,21 @@ public final class EditorActions {
     public final Action replacePicture;
     public final Action originalSize;
     public final Action savePictureAs;
+    public final Action insertTable;
+    /** The toolbar's table button: the size grid below the button. */
+    public final Action insertTableGrid;
+    public final Action insertRowAbove;
+    public final Action insertRowBelow;
+    public final Action insertColumnLeft;
+    public final Action insertColumnRight;
+    public final Action deleteRow;
+    public final Action deleteColumn;
+    public final Action deleteTable;
+    public final Action selectRow;
+    public final Action selectTable;
+    public final Action cellBackground;
+    public final Action tableProperties;
+    private final List<Action> tableOnly = new ArrayList<>();
     /** Edits collected into one undo step while {@link #apply} runs. */
     private CompoundEdit group;
     private Dialogs dialogs = new Dialogs() {
@@ -133,6 +155,20 @@ public final class EditorActions {
         }
 
         default void showError(String message) {
+        }
+
+        /** The Insert Table dialog; {@code contentWidth} is the text column's width in points. */
+        default Optional<InsertTableDialog.Values> insertTable(double contentWidth) {
+            return Optional.empty();
+        }
+
+        default Optional<TablePropertiesDialog.Values> tableProperties(TablePropertiesDialog.Current current,
+                                                                       double contentWidth) {
+            return Optional.empty();
+        }
+
+        default Optional<CellBackgroundDialog.Choice> cellBackground(Color current) {
+            return Optional.empty();
         }
     }
 
@@ -192,7 +228,37 @@ public final class EditorActions {
         originalSize = action("menu.picture.original-size", "tip.picture-original-size", null, 0,
                 e -> originalSize());
         savePictureAs = action("menu.picture.save-as", "tip.picture-save-as", null, 0, e -> savePictureAs());
+        insertTable = action("menu.insert.table", "tip.insert-table", WritepadGlyph.TABLE, 0,
+                e -> insertTableDialog());
+        insertTable.putValue(Action.ACCELERATOR_KEY, KeyStroke.getKeyStroke(KeyEvent.VK_F12, CTRL));
+        TableGridPicker picker = new TableGridPicker(msg, (columns, rows) -> insertTable(
+                TableFormat.of(columns, editor.pageLayout().contentWidth()).withRepeatHeader(true), rows, true),
+                this::insertTableDialog);
+        insertTableGrid = action("menu.insert.table", "tip.insert-table", WritepadGlyph.TABLE, 0, e -> {
+            if (e.getSource() instanceof java.awt.Component c) picker.showBelow(c);
+            else insertTableDialog();
+        });
+        insertRowAbove = tableAction("menu.table.row-above", "tip.table.row-above",
+                (doc, at) -> TableEditing.insertRow(doc, at, false));
+        insertRowBelow = tableAction("menu.table.row-below", "tip.table.row-below",
+                (doc, at) -> TableEditing.insertRow(doc, at, true));
+        insertColumnLeft = tableAction("menu.table.column-left", "tip.table.column-left",
+                (doc, at) -> TableEditing.insertColumn(doc, at, false));
+        insertColumnRight = tableAction("menu.table.column-right", "tip.table.column-right",
+                (doc, at) -> TableEditing.insertColumn(doc, at, true));
+        deleteRow = tableAction("menu.table.delete-row", "tip.table.delete-row", TableEditing::deleteRow);
+        deleteColumn = tableAction("menu.table.delete-column", "tip.table.delete-column", TableEditing::deleteColumn);
+        deleteTable = tableAction("menu.table.delete-table", "tip.table.delete-table", TableEditing::deleteTable);
+        selectRow = action("menu.table.select-row", "tip.table.select-row", null, 0, e -> selectRow());
+        selectTable = action("menu.table.select-table", "tip.table.select-table", null, 0, e -> selectTable());
+        cellBackground = action("menu.table.cell-background", "tip.table.cell-background", null, 0,
+                e -> cellBackgroundDialog());
+        tableProperties = action("menu.table.properties", "tip.table.properties", null, 0,
+                e -> tablePropertiesDialog());
+        tableOnly.addAll(List.of(insertRowAbove, insertRowBelow, insertColumnLeft, insertColumnRight, deleteRow,
+                deleteColumn, deleteTable, selectRow, selectTable, cellBackground, tableProperties));
         installListKeys();
+        installTableKeys();
     }
 
     /**
@@ -207,17 +273,20 @@ public final class EditorActions {
         Action insertBreak = actions.get(DefaultEditorKit.insertBreakAction);
         Action deleteBefore = actions.get(DefaultEditorKit.deletePrevCharAction);
         listKey(keys, actions, KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0), "writepad-tab", insertTab, () -> {
+            if (tableTab(true)) return true;
             if (!formatting.isListItem() || !(atParagraphStart() || severalParagraphs())) return false;
             edit(() -> formatting.changeLevel(1));
             return true;
         });
         listKey(keys, actions, KeyStroke.getKeyStroke(KeyEvent.VK_TAB, InputEvent.SHIFT_DOWN_MASK),
                 "writepad-shift-tab", null, () -> {
+                    if (tableTab(false)) return true;
                     if (!formatting.isListItem()) return false;
                     edit(() -> formatting.changeLevel(-1));
                     return true;
                 });
         listKey(keys, actions, KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "writepad-enter", insertBreak, () -> {
+            if (paragraphAboveTable()) return true;
             if (!formatting.isListItem() || !emptyParagraph()) return false;
             edit(() -> formatting.endListAtCaret(false));
             return true;
@@ -371,6 +440,159 @@ public final class EditorActions {
         });
     }
 
+    // ---------------------------------------------------------------- tables
+
+    /** A table command: changes the document at the caret, returns where the caret goes (-1: stays). */
+    @FunctionalInterface
+    private interface TableChange {
+        int apply(WritepadDocument document, int offset) throws BadLocationException;
+    }
+
+    private Action tableAction(String nameKey, String tipKey, TableChange change) {
+        return action(nameKey, tipKey, null, 0, e -> changeTable(change));
+    }
+
+    private void changeTable(TableChange change) {
+        if (!(editor.getDocument() instanceof WritepadDocument doc) || !inTable()) return;
+        edit(() -> {
+            try {
+                int caret = change.apply(doc, editor.getSelectionStart());
+                if (caret >= 0) editor.setCaretPosition(Math.min(caret, doc.getLength()));
+            } catch (BadLocationException e) {
+                throw new IllegalStateException(e);
+            }
+        });
+    }
+
+    /** Whether the caret (the selection's start) is in a table. */
+    public boolean inTable() {
+        return Tables.inTable(editor.getStyledDocument(), editor.getSelectionStart());
+    }
+
+    private void insertTableDialog() {
+        if (inTable()) return;
+        dialogs.insertTable(editor.pageLayout().contentWidth())
+                .ifPresent(v -> insertTable(v.format(), v.rows(), v.header()));
+        editor.requestFocusInWindow();
+    }
+
+    /** Inserts a table at the caret (the selection's start), the caret in its first cell, as one undo step. */
+    public void insertTable(TableFormat format, int rows, boolean header) {
+        if (!(editor.getDocument() instanceof WritepadDocument doc) || inTable()) return;
+        edit(() -> {
+            try {
+                int at = TableEditing.insertTable(doc, editor.getSelectionStart(), format, rows, header);
+                editor.setCaretPosition(at);
+            } catch (BadLocationException e) {
+                throw new IllegalStateException(e);
+            }
+        });
+    }
+
+    private void selectRow() {
+        Tables.Table table = Tables.at(editor.getDocument(), editor.getSelectionStart());
+        if (table == null) return;
+        Tables.Row row = table.row(editor.getSelectionStart());
+        editor.setCaretPosition(row.start());
+        editor.moveCaretPosition(row.end() - 1);
+        editor.requestFocusInWindow();
+    }
+
+    private void selectTable() {
+        Tables.Table table = Tables.at(editor.getDocument(), editor.getSelectionStart());
+        if (table == null) return;
+        editor.setCaretPosition(table.start());
+        editor.moveCaretPosition(table.end() - 1);
+        editor.requestFocusInWindow();
+    }
+
+    private Element caretCell() {
+        Tables.Table table = Tables.at(editor.getDocument(), editor.getSelectionStart());
+        Tables.Cell cell = table == null ? null : table.cell(editor.getSelectionStart());
+        return cell == null ? null : cell.first();
+    }
+
+    private void cellBackgroundDialog() {
+        Element cell = caretCell();
+        if (cell == null || !(editor.getDocument() instanceof WritepadDocument doc)) return;
+        dialogs.cellBackground(TableAttributes.background(cell.getAttributes())).ifPresent(choice -> edit(() -> {
+            try {
+                TableEditing.setBackground(doc, editor.getSelectionStart(), editor.getSelectionEnd(), choice.color());
+            } catch (BadLocationException e) {
+                throw new IllegalStateException(e);
+            }
+        }));
+    }
+
+    /** The Table Properties dialog for the table at the caret. */
+    public void tablePropertiesDialog() {
+        Tables.Table table = Tables.at(editor.getDocument(), editor.getSelectionStart());
+        Element cell = caretCell();
+        if (table == null || cell == null || !(editor.getDocument() instanceof WritepadDocument doc)) return;
+        TablePropertiesDialog.Current current = new TablePropertiesDialog.Current(table.format(),
+                TableAttributes.background(cell.getAttributes()), TableAttributes.verticalAlignment(cell.getAttributes()));
+        int start = editor.getSelectionStart();
+        int end = editor.getSelectionEnd();
+        dialogs.tableProperties(current, editor.pageLayout().contentWidth()).ifPresent(v -> edit(() -> {
+            try {
+                if (v.backgroundChanged()) TableEditing.setBackground(doc, start, end, v.background().orElse(null));
+                if (v.verticalAlignment() != null) TableEditing.setVerticalAlignment(doc, start, end, v.verticalAlignment());
+                TableEditing.setFormat(doc, start, v.format());
+            } catch (BadLocationException e) {
+                throw new IllegalStateException(e);
+            }
+        }));
+    }
+
+    /**
+     * Keys in tables: Tab goes to the next cell (in the last cell it adds a row), Shift+Tab to the one before,
+     * Ctrl+Tab types a tab. Enter at the very start of a table that begins the document makes a paragraph in
+     * front of it, the only way to write above such a table.
+     */
+    private void installTableKeys() {
+        InputMap keys = editor.getInputMap(JComponent.WHEN_FOCUSED);
+        ActionMap actions = editor.getActionMap();
+        // Ctrl+Tab is the text component's focus key; here it is the tab within a cell.
+        editor.setFocusTraversalKeys(java.awt.KeyboardFocusManager.FORWARD_TRAVERSAL_KEYS, java.util.Set.of());
+        keys.put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, CTRL), "writepad-real-tab");
+        actions.put("writepad-real-tab", new AbstractAction("writepad-real-tab") {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                if (editor.isEditable()) edit(() -> editor.replaceSelection("\t"));
+            }
+        });
+    }
+
+    /** Tab or Shift+Tab in a table; false outside tables. */
+    private boolean tableTab(boolean forward) {
+        if (!inTable() || !(editor.getDocument() instanceof WritepadDocument doc)) return false;
+        int at = editor.getSelectionStart();
+        int target = forward ? TableEditing.nextCell(doc, at) : TableEditing.previousCell(doc, at);
+        if (target < 0 && forward) {
+            changeTable((d, offset) -> TableEditing.insertRow(d, offset, true));
+            return true;
+        }
+        if (target < 0) return true;
+        Tables.Cell cell = Tables.at(doc, target).cell(target);
+        editor.setCaretPosition(cell.start());
+        // As in Word: the cell's text is selected, so typing replaces it.
+        if (cell.end() - 1 > cell.start()) editor.moveCaretPosition(cell.end() - 1);
+        return true;
+    }
+
+    /** Enter at the start of a table with nothing above it. */
+    private boolean paragraphAboveTable() {
+        if (!inTable() || editor.getSelectionStart() != editor.getSelectionEnd()
+                || !(editor.getDocument() instanceof WritepadDocument doc)) {
+            return false;
+        }
+        int at = editor.getCaretPosition();
+        Tables.Table table = Tables.at(doc, at);
+        if (table.start() != at || at > 0 && !Tables.inTable(doc, at - 1)) return false;
+        changeTable(TableEditing::paragraphBefore);
+        return true;
+    }
+
     public TextFormatting formatting() {
         return formatting;
     }
@@ -416,6 +638,10 @@ public final class EditorActions {
             pictureOnly.setEnabled(picture);
         }
         insertPicture.setEnabled(editor.isEditable());
+        boolean table = inTable();
+        for (Action a : tableOnly) a.setEnabled(table && (editor.isEditable() || a == selectRow || a == selectTable));
+        insertTable.setEnabled(!table && editor.isEditable());
+        insertTableGrid.setEnabled(!table && editor.isEditable());
         updateUndo();
         for (Runnable listener : listeners) listener.run();
     }

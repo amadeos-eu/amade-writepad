@@ -30,8 +30,8 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * File, Edit, View, Insert, Format, Options and Help, in the order WordPad uses. Editing and formatting
- * items share their actions with the toolbars.
+ * File, Edit, View, Insert, Format, Table, Options and Help: WordPad's order, with LibreOffice's Table menu
+ * after Format. Editing and formatting items share their actions with the toolbars.
  */
 public final class MainMenuBar extends JMenuBar {
     private static final int CTRL = InputEvent.CTRL_DOWN_MASK;
@@ -86,6 +86,7 @@ public final class MainMenuBar extends JMenuBar {
         view.add(zoom);
 
         JMenu insert = menu("menu.insert");
+        insert.add(item(actions.insertTable));
         insert.add(item(actions.insertPicture));
         insert.addSeparator();
         item(insert, "menu.insert.sample-text", 0, 0, presenter::insertSampleText);
@@ -137,9 +138,27 @@ public final class MainMenuBar extends JMenuBar {
         }
         format.add(orientation);
 
+        JMenu table = menu("menu.table");
+        table.add(item(actions.insertTable));
+        table.addSeparator();
+        for (Action a : tableItems(actions)) {
+            if (a == null) table.addSeparator();
+            else table.add(item(a));
+        }
+
         JMenu options = menu("menu.options");
         options.add(languageMenu(presenter, locales));
         item(menu("menu.help"), "menu.help.about", 0, 0, presenter::about);
+    }
+
+    /**
+     * The table commands in the order of the Table menu and the right-click menu in a cell; null stands for
+     * a separator.
+     */
+    static Action[] tableItems(EditorActions actions) {
+        return new Action[]{actions.insertRowAbove, actions.insertRowBelow, actions.insertColumnLeft,
+                actions.insertColumnRight, null, actions.deleteRow, actions.deleteColumn, actions.deleteTable, null,
+                actions.selectRow, actions.selectTable, null, actions.cellBackground, actions.tableProperties};
     }
 
     /** Marks the current paper and orientation. */
