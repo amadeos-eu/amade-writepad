@@ -5,6 +5,8 @@
 ![License](https://img.shields.io/badge/license-EUPL--1.2-blue)
 ![Java](https://img.shields.io/badge/Java-25-orange)
 
+![WritePad](docs/screenshots/amade-writepad.png)
+
 ## Goals
 
 - Character and paragraph formatting, bullet and numbered lists, tab stops on a ruler, images, header and footer
