@@ -119,7 +119,7 @@ Version: ${debVersion}
 Section: text
 Priority: optional
 Architecture: all
-Depends: openjdk-25-jre | java-runtime (>= 25)
+Depends: openjdk-25-jre | java-runtime (>= 25), amadeos-java-options
 Suggests: libreoffice-writer
 Maintainer: amadeOS Project <developers@datazuul.com>
 Description: Document editor for amadeOS in the style of WordPad
