@@ -85,8 +85,12 @@ tasks.register('deb') {
         }
 
         def launcher = new File(binDir, 'amade-writepad')
+        // The options all amadeOS programs share (heap, garbage collector) come first from the argument file
+        // amadeos-session installs; the options after it win over them.
         launcher.text = """#!/bin/sh
-exec /usr/bin/java -jar /opt/amade-writepad/amade-writepad.jar "\$@"
+OPTIONS=/etc/amadeos/java/app.options
+[ -r "\$OPTIONS" ] || OPTIONS=/dev/null
+exec /usr/bin/java "@\$OPTIONS" -jar /opt/amade-writepad/amade-writepad.jar "\$@"
 """
         launcher.setExecutable(true, false)
 
